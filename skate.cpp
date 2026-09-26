@@ -48,6 +48,7 @@
 #include <vector>
 #include <algorithm>
 #include <functional>
+#include <mutex>
 
 #ifndef APIENTRY
 #define APIENTRY
@@ -2495,7 +2496,21 @@ static void spawnSparks(V3 p, V3 v, int n);
 static void spawnSplash(V3 p, int n, float power = 1.f);
 static void popup(const std::string& s, Col c, float scale = 1.f, float life = 1.6f);
 struct AudioParams { float roll = 0, rollPitch = 1, rollSurf = 0, grind = 0, grindMetal = 1, water = 0, wind = 0; };
-static AudioParams aud;
+static AudioParams aud;  // game-thread staging values
+
+// Publish a coherent copy to the audio callback instead of racing on individual fields.
+// Adapted from intra-secdsm/OpusSkate commit 62815a0.
+struct AudioSnapshot { AudioParams params; bool musicOn = true; };
+static AudioSnapshot publishedAudio;
+static std::mutex audioParamsMutex;
+static void publishAudio(const AudioParams& params, bool musicEnabled) {
+    std::lock_guard<std::mutex> lock(audioParamsMutex);
+    publishedAudio = {params, musicEnabled};
+}
+static AudioSnapshot audioSnapshot() {
+    std::lock_guard<std::mutex> lock(audioParamsMutex);
+    return publishedAudio;
+}
 
 // ----------------------------------------------------------------------------
 // Tricks
@@ -4353,6 +4368,8 @@ static void audioCallback(void*, Uint8* stream, int bytes) {
     int frames = bytes / (int)(sizeof(float) * 2);
     const float dt = 1.f / AR;
     const float bpm = 88.f, stepDur = 60.f / bpm / 4.f;
+    AudioSnapshot snap = audioSnapshot();
+    const AudioParams& params = snap.params;
     for (int i = 0; i < frames; i++) {
         float mix = 0;
         // one-shots
@@ -4366,14 +4383,14 @@ static void audioCallback(void*, Uint8* stream, int bytes) {
             v.pos += v.rate;
         }
         // smoothed loop parameters
-        LS.roll += (aud.roll - LS.roll) * 0.0008f;
-        LS.grind += (aud.grind - LS.grind) * 0.004f;
-        LS.wind += (aud.wind - LS.wind) * 0.0005f;
-        LS.water += (aud.water - LS.water) * 0.0005f;
-        LS.metal += (aud.grindMetal - LS.metal) * 0.002f;
+        LS.roll += (params.roll - LS.roll) * 0.0008f;
+        LS.grind += (params.grind - LS.grind) * 0.004f;
+        LS.wind += (params.wind - LS.wind) * 0.0005f;
+        LS.water += (params.water - LS.water) * 0.0005f;
+        LS.metal += (params.grindMetal - LS.metal) * 0.002f;
         float n = anoise();
         if (LS.roll > 0.001f) {
-            float cut = 250.f + 700.f * std::min(aud.rollPitch, 1.6f);
+            float cut = 250.f + 700.f * std::min(params.rollPitch, 1.6f);
             float r = LS.rollLp2.lp(LS.rollLp1.lp(n, lpA(cut)), lpA(cut * 1.4f));
             float rumble = std::sin((float)(TAU * 55.0 * LS.t)) * (0.4f + 0.6f * r);
             mix += (r * 1.6f + rumble * 0.12f) * LS.roll;
@@ -4388,7 +4405,7 @@ static void audioCallback(void*, Uint8* stream, int bytes) {
         if (LS.water > 0.001f) { float lo = LS.waterLp.lp(n, lpA(1800)); mix += (n - lo) * LS.water * 0.18f; }
         mix += LS.ambLp.lp(n, lpA(140)) * 0.06f;   // distant traffic rumble
         // music
-        if (musicOn) {
+        if (snap.musicOn) {
             long st = (long)(LS.t / stepDur);
             double sw = (st % 2) ? stepDur * 0.14 : 0.0;   // swing
             if (st != LS.step && LS.t >= st * stepDur + sw) { LS.step = st; musicStep(st); }
@@ -5317,6 +5334,7 @@ int main(int argc, char** argv) {
             for (auto& em : emitters) if (em.kind == EM_FOUNTAIN || em.kind == EM_HYDRANT) w = std::max(w, 1.f - len(em.pos - P.pos) / 22.f);
             aud.water = mode == GM_PLAY ? std::max(0.f, w) * 0.8f : 0.f;
             if (mode != GM_PLAY) { aud.roll = aud.grind = aud.wind = 0; }
+            publishAudio(aud, musicOn);
         }
         updateParticles(mode == GM_PAUSE ? 0.f : frameDt, cam.pos);
 
