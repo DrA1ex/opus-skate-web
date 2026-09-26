@@ -548,11 +548,7 @@ vec3 applyFog(vec3 col, vec3 p){
   return mix(col, fc, clamp(f, 0.0, 1.0));
 }
 vec3 grade(vec3 c){
-  c = c / (1.0 + c*0.18);                           // soft shoulder
-  float l = dot(c, vec3(0.299,0.587,0.114));
-  c = mix(vec3(l), c, 1.08);                         // a touch of saturation
-  c *= vec3(1.03, 1.0, 0.95);                        // warm late-afternoon film
-  return pow(clamp(c,0.0,1.0), vec3(0.95));
+  return clamp(c, 0.0, 1.0);
 }
 )";
 
@@ -564,12 +560,45 @@ out vec4 fragColor;
 float shadowAt(vec3 n){
   vec3 p = vLight.xyz / vLight.w * 0.5 + 0.5;
   if(p.x<0.0||p.x>1.0||p.y<0.0||p.y>1.0||p.z>1.0) return 1.0;
-  float bias = 0.0006 + 0.0016*(1.0 - clamp(dot(n,uSunDir),0.0,1.0));
-  float s = 0.0;
-  for(int x=-1;x<=1;x++) for(int y=-1;y<=1;y++)
-    s += texture(uShadow, vec3(p.xy + vec2(x,y)*uShadowTexel*1.2, p.z - bias));
-  float fade = smoothstep(0.42, 0.5, max(abs(p.x-0.5), abs(p.y-0.5)));
-  return mix(s/9.0, 1.0, fade);
+
+  // The tighter polishing bias aliases on large near-vertical receivers.
+  // Keep the conservative original bias while retaining the wider PCF kernel.
+  float ndl = clamp(dot(n,uSunDir), 0.0, 1.0);
+  float bias = 0.00060 + 0.00160 * (1.0 - ndl);
+  float dist = length(vPos - uCamPos);
+  float r = uShadowTexel * mix(1.15, 2.15, smoothstep(18.0, 85.0, dist));
+
+  float s = texture(uShadow, vec3(p.xy, p.z - bias)) * 2.0;
+  s += texture(uShadow, vec3(p.xy + vec2( 0.35,  0.95)*r, p.z - bias));
+  s += texture(uShadow, vec3(p.xy + vec2(-0.55,  0.80)*r, p.z - bias));
+  s += texture(uShadow, vec3(p.xy + vec2(-0.95,  0.20)*r, p.z - bias));
+  s += texture(uShadow, vec3(p.xy + vec2(-0.70, -0.70)*r, p.z - bias));
+  s += texture(uShadow, vec3(p.xy + vec2( 0.15, -0.98)*r, p.z - bias));
+  s += texture(uShadow, vec3(p.xy + vec2( 0.80, -0.55)*r, p.z - bias));
+  s += texture(uShadow, vec3(p.xy + vec2( 0.98,  0.18)*r, p.z - bias));
+  s += texture(uShadow, vec3(p.xy + vec2( 0.65,  0.65)*r, p.z - bias));
+
+  float fade = smoothstep(0.43, 0.5, max(abs(p.x-0.5), abs(p.y-0.5)));
+  return mix(s/10.0, 1.0, fade);
+}
+vec3 detailNormal(vec3 n, float h, float strength){
+  vec3 dpdx = dFdx(vPos), dpdy = dFdy(vPos);
+  vec3 r1 = cross(dpdy, n), r2 = cross(n, dpdx);
+  float det = dot(dpdx, r1);
+  float side = det < 0.0 ? -1.0 : 1.0;
+  vec3 grad = side * (dFdx(h)*r1 + dFdy(h)*r2);
+  return normalize(max(abs(det), 1e-5)*n - strength*grad);
+}
+float bayer4(vec2 p){
+  ivec2 q = ivec2(mod(floor(p), 4.0));
+  int i = q.x + q.y * 4;
+  const float m[16] = float[16](
+     0.0,  8.0,  2.0, 10.0,
+    12.0,  4.0, 14.0,  6.0,
+     3.0, 11.0,  1.0,  9.0,
+    15.0,  7.0, 13.0,  5.0
+  );
+  return (m[i] + 0.5) / 16.0;
 }
 // returns window mask (0 wall, 1 glass, 2 frame); id = unique window id
 float windowMask(vec2 uv, float cellW, float floorH, float y0, float winW, float winH, float sill, out vec2 id, out vec2 local){
@@ -590,6 +619,7 @@ void main(){
   if(!gl_FrontFacing) n = -n;
   vec3 base = vCol;
   float spec = 0.04, shin = 24.0, emit = 0.0, refl = 0.0, wrap = 0.0;
+  float bump = 0.0, bumpAmt = 0.0;
   bool horiz = abs(n.y) > 0.6;
   vec2 fuv = horiz ? vPos.xz : vec2(abs(n.x) > abs(n.z) ? vPos.z : vPos.x, vPos.y);
   vec3 V = normalize(uCamPos - vPos);
@@ -599,13 +629,29 @@ void main(){
     float row = floor(b.y);
     b.x += mod(row, 2.0) * 0.5;
     vec2 bi = floor(b), bf = fract(b);
-    vec2 fwb = fwidth(b);
-    float aa = 1.0 - smoothstep(0.18, 0.5, max(fwb.x, fwb.y));   // fade detail out before it aliases
-    float mortar = (bf.y < 0.14 || bf.x < 0.05) ? 1.0 : 0.0;
+    vec2 fwb = max(fwidth(b), vec2(1e-4));
+    float pixelFootprint = max(fwb.x, fwb.y);
+
+    // Fade brick-scale variation before it reaches the pixel-frequency range.
+    // Keeping the old random per-brick colour at this scale caused the facade
+    // to crawl even though the mortar edge itself was anti-aliased.
+    // Fade brick-level detail well before individual courses approach pixel size.
+    // The staggered rows otherwise collapse into diagonal moire on mid-distance facades.
+    float detail = 1.0 - smoothstep(0.025, 0.08, pixelFootprint);
+
+    float mortarX = 1.0 - smoothstep(0.05 - fwb.x, 0.05 + fwb.x, bf.x);
+    float mortarY = 1.0 - smoothstep(0.14 - fwb.y, 0.14 + fwb.y, bf.y);
+    float mortar = max(mortarX, mortarY) * detail;
+
     float v = hash12(bi);
-    base *= mix(0.97, 0.82 + 0.3*v, aa);
-    base = mix(base, vec3(0.62,0.6,0.56), mix(0.14, mortar*0.85, aa));
-    base *= 0.9 + 0.2*fbm(vPos.xz*0.35 + vPos.y*0.2);
+    float brickVariation = mix(0.96, 0.84 + 0.22*v, detail);
+    base *= brickVariation;
+    base = mix(base, vec3(0.62,0.6,0.56), 0.12 + mortar*0.72);
+
+    // Broad facade variation only; unlike per-brick noise this remains stable
+    // when the building occupies relatively few pixels.
+    float facadeNoise = fbm(fuv*0.18);
+    base *= 0.94 + 0.10*facadeNoise;
     if(m == 2){
       vec2 id, lc; float w = windowMask(fuv, 2.7, 3.3, 4.8, 1.25, 1.85, 0.75, id, lc);
       if(w > 1.5){ base = mix(vec3(0.85,0.83,0.78), vec3(0.18,0.2,0.22), step(0.5, hash12(id*3.1+7.0))); spec = 0.1; }
@@ -648,10 +694,13 @@ void main(){
     vec2 fwg = fwidth(g);
     float aa = 1.0 - smoothstep(0.02, 0.06, max(fwg.x, fwg.y));
     float joint = (gf.x < 0.012 || gf.y < 0.012 || gf.x > 0.988 || gf.y > 0.988) ? 1.0 : 0.0;
-    base *= 0.86 + 0.16*hash12(gi) + 0.1*fbm(vPos.xz*2.0);
+    float concrete = fbm(vPos.xz*2.0);
+    base *= 0.86 + 0.16*hash12(gi) + 0.1*concrete;
     base *= 1.0 - joint*0.45*aa;
     vec2 gc = floor(vPos.xz * 3.0);
     if(hash12(gc) > 0.975){ vec2 d = fract(vPos.xz*3.0)-0.5; if(dot(d,d) < 0.06) base *= 0.55; }   // gum
+    bump = concrete; bumpAmt = 0.016;
+    spec = 0.03; shin = 22.0;
   } else if(m == 7){ emit = 1.0; }
   else if(m == 8){                                          // wooden planks (along x)
     float w = vPos.z / 0.22; float pi = floor(w);
@@ -660,6 +709,8 @@ void main(){
     float grain = vnoise(vec2(vPos.x*1.5 + pi*7.0, fract(w)*8.0));
     base *= (0.8 + 0.25*hash12(vec2(pi, floor(vPos.x/3.0 + hash12(vec2(pi,1.0))*3.0)))) * (0.85 + 0.25*grain);
     base *= 1.0 - gap*0.6;
+    bump = grain; bumpAmt = 0.018;
+    spec = 0.05; shin = 28.0;
   } else if(m == 9){ spec = 0.8; shin = 60.0; base *= 0.9 + 0.1*vnoise(fuv*20.0); }
   else if(m == 10){                                         // foliage
     float nz = fbm(vPos.xz*3.0 + vPos.y*2.0);
@@ -668,9 +719,20 @@ void main(){
     vec2 q = fuv * 14.0;
     vec2 r = vec2(q.x + q.y, q.x - q.y);
     vec2 fwq = fwidth(r);
-    if(max(fwq.x, fwq.y) > 0.28){ if(hash12(gl_FragCoord.xy) > 0.33) discard; }   // far away: dithered density
-    else { vec2 f = abs(fract(r) - 0.5); if(min(f.x, f.y) > 0.09) discard; }
-    spec = 0.6; shin = 40.0;
+    float fw = max(fwq.x, fwq.y);
+
+    if(fw > 0.28){
+      // Match the transparent distant behaviour from main, but use an ordered
+      // 4x4 screen pattern instead of random hash noise. Roughly one third of
+      // fragments survive, so the fence remains visibly open instead of turning
+      // into a dark quad.
+      if(bayer4(gl_FragCoord.xy) > 0.34) discard;
+    } else {
+      vec2 f = abs(fract(r) - 0.5);
+      if(min(f.x, f.y) > 0.09) discard;
+    }
+
+    spec = 0.45; shin = 36.0;
   } else if(m == 12){                                       // shop window glass
     vec3 R = reflect(-V, n);
     float fr = 0.25 + 0.75*pow(1.0 - max(dot(n, V), 0.0), 3.0);
@@ -699,14 +761,31 @@ void main(){
   else if(m == 20){ spec = 0.7; shin = 80.0; refl = 0.25; }
   else if(m == 22){ base *= 0.75 + 0.35*fbm(vPos.xz*0.8); }
 
+  if(bumpAmt > 0.0) n = detailNormal(n, bump, bumpAmt);
+
   float ndl = dot(n, uSunDir);
   float diff = max((ndl + wrap) / (1.0 + wrap), 0.0);
-  float sh = ndl > -0.2 ? shadowAt(n) : 0.0;
-  vec3 hemi = mix(uGroundCol, uSkyTop*0.9 + uSkyHorizon*0.2, n.y*0.5 + 0.5);
-  float ao = horiz ? 1.0 : mix(0.72, 1.0, smoothstep(0.0, 1.4, vPos.y + 0.1));
-  vec3 col = base * (hemi * 0.62 * ao + uSunCol * diff * sh);
+  float shRaw = ndl > -0.2 ? shadowAt(n) : 0.0;
+  float sh = smoothstep(0.12, 0.90, shRaw);
+
+  vec3 hemi = mix(uGroundCol, uSkyTop*0.88 + uSkyHorizon*0.18, n.y*0.5 + 0.5);
+  float ao = horiz ? 1.0 : mix(0.72, 1.0, smoothstep(0.0, 1.45, vPos.y + 0.08));
+  float sideBounce = (1.0 - abs(n.y)) * 0.06;
+
+  // Shadows still affect bounce lighting, but keep enough indirect light to preserve detail.
+  float indirectVis = mix(0.74, 1.0, sh);
+  vec3 indirect = hemi * (0.58 + sideBounce) * ao * indirectVis;
+  vec3 col = base * (indirect + uSunCol * diff * sh * 1.02);
+
   vec3 H = normalize(uSunDir + V);
-  col += uSunCol * spec * pow(max(dot(n, H), 0.0), shin) * sh;
+  float noH = max(dot(n, H), 0.0);
+  float voH = max(dot(V, H), 0.0);
+  float fres = 0.04 + 0.96*pow(1.0 - voH, 5.0);
+  float specNorm = 0.22 + shin*0.009;
+  col += uSunCol * spec * pow(noH, shin) * specNorm * (0.25 + 0.45*fres) * sh * max(ndl, 0.0);
+
+  float rim = pow(1.0 - max(dot(n, V), 0.0), 3.0);
+  col += base * uSkyHorizon * rim * 0.018;
   if(refl > 0.0){
     vec3 R = reflect(-V, n);
     float fr = 0.2 + 0.8*pow(1.0 - max(dot(n, V), 0.0), 4.0);
@@ -1189,6 +1268,7 @@ static std::vector<Lamp> lamps;
 static const Col C_ASPHALT = hexc(0x46464a), C_SIDEWALK = hexc(0xa9a59c), C_CURB = hexc(0x8f8b84);
 static const Col C_GRANITE = hexc(0x8d8a86), C_IRON = hexc(0x1e2220), C_STEEL = hexc(0x9aa0a6);
 static const Col C_WOOD = hexc(0x8a6a48), C_PLYWOOD = hexc(0xc49a62), C_YELLOW = hexc(0xf2c318), C_WHITE = hexc(0xeeeeea);
+static const float FACADE_EPS = 0.018f;    // decals / storefront layers in front of building walls
 
 static V3 rotLocal(float rot, float lx, float lz) {   // local (x,z) offset -> world offset
     float c = std::cos(rot), s = std::sin(rot);
@@ -1453,7 +1533,7 @@ static void signBoard(V3 pos, V3 right, V3 up, V3 out, float w, float h, const s
     SM.box(F, V3(w * 0.5f, h * 0.5f, 0.06f), bg, MAT_PAINTED);
     float px = std::min(h * 0.62f / 7.f, (w * 0.9f) / (txt.size() * 6.f));
     float tw = textWidth3D(txt, px);
-    V3 o = c - right * (tw * 0.5f) - up * (3.5f * px) + out * 0.065f;
+    V3 o = c - right * (tw * 0.5f) - up * (3.5f * px) + out * (0.06f + FACADE_EPS);
     SM.text3D(txt, o, right, up, px, fg, neon ? MAT_EMISSIVE : MAT_PLAIN);
 }
 
@@ -1485,7 +1565,7 @@ static void storefront(V3 o, V3 r, V3 n, float w, const std::string& name, Col s
     // neon "OPEN" in the window sometimes
     if (rng.chance(0.55f)) {
         float px = 0.045f;
-        V3 no = o + r * (doorX < w * 0.5f ? w - 2.2f : 1.0f) + up * 2.4f + n * 0.05f;
+        V3 no = o + r * (doorX < w * 0.5f ? w - 2.2f : 1.0f) + up * 2.4f + n * (0.03f + FACADE_EPS);
         SM.text3D("OPEN", no, r, up, px, rng.chance(0.5f) ? hexc(0xff3060) : hexc(0x40c0ff), MAT_EMISSIVE);
     }
     if (hasAwning) {
@@ -1536,17 +1616,21 @@ static void fireEscape(V3 o, V3 r, V3 n, float w, int floors) {
 //   Water St z in [-74,-62]; promenade z in [-88,-74]; river beyond.
 // ----------------------------------------------------------------------------
 static const float SH = 0.15f;   // sidewalk height
+static const float SURFACE_EPS = 0.012f;   // visual layers above coplanar ground surfaces
+static const float SURFACE_STEP = 0.008f;  // spacing between stacked paint / paving layers
 
-static void building(float x0, float z0, float x1, float z1, float h, int style, Col col, uint32_t seed, bool roofStuff = true) {
+static void building(float x0, float z0, float x1, float z1, float h, int style, Col col, uint32_t seed,
+                     bool roofStuff = true, int wallFaces = 1 | 2 | 16 | 32) {
     uint8_t mat = style == 1 ? MAT_STONEWIN : (style == 2 ? MAT_GLASSWALL : MAT_WINDOWS);
-    SM.boxAA(V3(x0, 0, z0), V3(x1, h, z1), col, mat, 1 | 2 | 16 | 32);
+    SM.boxAA(V3(x0, 0, z0), V3(x1, h, z1), col, mat, wallFaces);
     SM.quadN(V3(x0, h, z1), V3(x1, h, z1), V3(x1, h, z0), V3(x0, h, z0), V3(0, 1, 0), hexc(0x55514c), MAT_ROOF);
     world.addBox((x0 + x1) * 0.5f, (z0 + z1) * 0.5f, 0, (x1 - x0) * 0.5f, (z1 - z0) * 0.5f, 0, h, SURF_CONCRETE, true);
     Rng r(seed);
     if (style != 2) {
         Col cor = style == 1 ? shade(col, 0.85f) : hexc(0x6d665c);
-        SM.boxAA(V3(x0 - 0.35f, h - 0.15f, z0 - 0.35f), V3(x1 + 0.35f, h + 0.45f, z1 + 0.35f), cor, MAT_CONCRETE);
-        SM.boxAA(V3(x0 - 0.12f, 4.7f, z0 - 0.12f), V3(x1 + 0.12f, 4.95f, z1 + 0.12f), cor, MAT_CONCRETE);   // storefront cornice line
+        int trimFaces = wallFaces | 4 | 8;
+        SM.boxAA(V3(x0 - 0.35f, h - 0.15f, z0 - 0.35f), V3(x1 + 0.35f, h + 0.45f, z1 + 0.35f), cor, MAT_CONCRETE, trimFaces);
+        SM.boxAA(V3(x0 - 0.12f, 4.7f, z0 - 0.12f), V3(x1 + 0.12f, 4.95f, z1 + 0.12f), cor, MAT_CONCRETE, trimFaces);   // storefront cornice line
     } else {
         SM.boxAA(V3(x0 + 1, h, z0 + 1), V3(x1 - 1, h + 3, z1 - 1), hexc(0x5b6066), MAT_CONCRETE);
     }
@@ -1570,7 +1654,8 @@ static int shopIdx = 0;
 
 // A row of buildings with storefronts. 'left' is the street-view left corner of the row at ground level,
 // 'out' the outward (street-facing) normal. Text reads left-to-right for someone on the sidewalk.
-static void facadeRow(V3 left, V3 out, float length, float depth, uint32_t seed, bool shops, float minH, float maxH, int styleMode) {
+static void facadeRow(V3 left, V3 out, float length, float depth, uint32_t seed, bool shops, float minH, float maxH,
+                      int styleMode, int firstRemoveFace = 0, int lastRemoveFace = 0, bool buildShells = true) {
     V3 up(0, 1, 0), r = cross(up, out);
     Rng rng(seed);
     static const uint32_t bricks[] = {0x8e4a36, 0x7a3b2c, 0xa0664a, 0x9c7a5a, 0x6e4535, 0xb08560, 0x8a5a44, 0x5e3a2e};
@@ -1588,13 +1673,19 @@ static void facadeRow(V3 left, V3 out, float length, float depth, uint32_t seed,
         int style = styleMode >= 0 ? styleMode : (rng.chance(0.72f) ? 0 : 1);
         Col col = style == 1 ? hexc(stones[rng.irange(0, 3)]) : hexc(bricks[rng.irange(0, 7)]);
         float h = 4.8f + 3.3f * rng.irange((int)((minH - 4.8f) / 3.3f), (int)((maxH - 4.8f) / 3.3f)) + 0.4f;
-        building(mn.x, mn.z, mx.x, mx.z, h, style, col, rng.next());
+        int wallFaces = 1 | 2 | 16 | 32;
+        if (x < 0.001f) wallFaces &= ~firstRemoveFace;
+        if (length - (x + w) < 0.5f) wallFaces &= ~lastRemoveFace;
+        uint32_t buildingSeed = rng.next(); // consume even for decoration-only rows so storefront RNG stays stable
+        if (buildShells)
+            building(mn.x, mn.z, mx.x, mx.z, h, style, col, buildingSeed, true, wallFaces);
         if (shops) {
             int k = rng.irange(0, 7);
-            storefront(p0 + out * 0.001f, r, out, w, SHOP_NAMES[shopIdx++ % 28], hexc(signBg[k]), hexc(signFg[k]),
+            storefront(p0 + out * FACADE_EPS, r, out, w, SHOP_NAMES[shopIdx++ % 28], hexc(signBg[k]), hexc(signFg[k]),
                        hexc(awn[rng.irange(0, 5)]), rng.chance(0.6f), rng);
         }
-        if (style == 0 && h > 12 && rng.chance(0.5f)) fireEscape(p0 + r * (w * 0.2f) + out * 0.01f, r, out, w * 0.6f, (int)((h - 5.f) / 3.3f));
+        if (buildShells && style == 0 && h > 12 && rng.chance(0.5f))
+            fireEscape(p0 + r * (w * 0.2f) + out * FACADE_EPS, r, out, w * 0.6f, (int)((h - 5.f) / 3.3f));
         x += w;
     }
 }
@@ -1615,7 +1706,7 @@ static void buildStreets() {
     slab(-600, RIVER_EDGE_Z, 600, -74, SH, C_SIDEWALK, MAT_SIDEWALK, SURF_SIDEWALK, 8);
     // road markings
     Col white = hexc(0xdedbd2), yel = hexc(0xe0b416);
-    float y = 0.006f;
+    float y = SURFACE_EPS;
     for (float z = -60; z < 200; z += 6) {
         if (z > -12 && z < 12) continue;
         stripeQuad(V3(-2.3f, y, z), V3(0, 0, 1), V3(1, 0, 0), 3, 0.14f, white);
@@ -1640,10 +1731,10 @@ static void buildStreets() {
     for (float x = -8.5f; x < 8.5f; x += 1.1f) stripeQuad(V3(x, y, -61.0f), V3(0, 0, 1), V3(1, 0, 0), 3.0f, 0.55f, white);
     // manholes, steam, puddles
     manhole(-3.5f, -30, true); manhole(4, 36, true); manhole(-30, 1.5f, false); manhole(38, -2, true); manhole(-3, -69, false);
-    puddle(-8.2f, 20, 0.012f, 1.6f, 3.2f);
-    puddle(5, -45, 0.012f, 2.2f, 1.4f);
-    puddle(26, 5.5f, 0.012f, 2.6f, 1.1f);
-    puddle(-45, -66, 0.012f, 1.8f, 2.8f);
+    puddle(-8.2f, 20, SURFACE_EPS + 0.006f, 1.6f, 3.2f);
+    puddle(5, -45, SURFACE_EPS + 0.006f, 2.2f, 1.4f);
+    puddle(26, 5.5f, SURFACE_EPS + 0.006f, 2.6f, 1.1f);
+    puddle(-45, -66, SURFACE_EPS + 0.006f, 1.8f, 2.8f);
     // traffic lights at the corners
     float tl[4][2] = {{-10.2f, -8.2f}, {10.2f, -8.2f}, {-10.2f, 8.2f}, {10.2f, 8.2f}};
     for (int i = 0; i < 4; i++) {
@@ -1679,11 +1770,14 @@ static void subwayEntrance(float cx, float cz) {
 static void buildNW() {
     V3 up(0, 1, 0);
     // avenue face (x=-14, faces +X), cross-street face (z=-12, faces +Z), Water St face (z=-57, faces -Z)
-    facadeRow(V3(-14, 0, -12), V3(1, 0, 0), 45, 16, 11, true, 12, 30, -1);
-    facadeRow(V3(-69.5f, 0, -12), V3(0, 0, 1), 55.5f, 16, 12, true, 12, 26, -1);
-    facadeRow(V3(-14, 0, -57), V3(0, 0, -1), 55.5f, 16, 13, true, 12, 24, -1);
+    // The three street rows overlap at the two corners. Keep the footprints (and
+    // storefront layout) unchanged, but omit the coplanar end walls that sit
+    // exactly on top of the neighbouring row's street-facing facade.
+    facadeRow(V3(-14, 0, -12), V3(1, 0, 0), 45, 16, 11, true, 12, 30, -1, 16, 32);
+    facadeRow(V3(-69.5f, 0, -12), V3(0, 0, 1), 55.5f, 16, 12, true, 12, 26, -1, 0, 1);
+    facadeRow(V3(-14, 0, -57), V3(0, 0, -1), 55.5f, 16, 13, true, 12, 24, -1, 1, 0);
     building(-200, -57, -69.5f, -12, 22, 0, hexc(0x7a4a3a), 14);
-    building(-70, -45, -26, -24, 14, 0, hexc(0x6a3a2e), 15, false);   // block interior filler
+    building(-69.5f, -41, -30, -28, 14, 0, hexc(0x6a3a2e), 15, false);   // interior filler; no facade overlap
     subwayEntrance(-11.4f, -30.5f);
     tree(-10.3f, -45, SH); tree(-10.3f, -18, SH); tree(-30, -8.1f, SH); tree(-52, -8.1f, SH);
     for (float z = -55; z < -10; z += 22) streetLamp(-9.7f, z, SH, PI / 2);
@@ -1754,7 +1848,7 @@ static void buildFountain(float cx, float cz) {
 
 static void buildPlaza() {
     // pavers + glass office tower on the east with a raised terrace, stairs and brick banks
-    overlay(14, -57, 58, -12, SH + 0.003f, hexc(0x9a5b47), MAT_PAVERS);
+    overlay(14, -57, 58, -12, SH + SURFACE_EPS, hexc(0x9a5b47), MAT_PAVERS);
     building(58, -57, 200, -12, 96, 2, hexc(0x8899aa), 21);
     float tTop = SH + 1.05f;
     Col gran = hexc(0x9a968f), gtop = hexc(0xa8a49c);
@@ -1855,11 +1949,13 @@ static void hoop(float x, float z, float faceYaw) {
 
 static void buildCourt() {
     float x0 = -48, x1 = -18, z0 = 16, z1 = 46;
-    overlay(x0, z0, x1, z1, SH + 0.003f, hexc(0x3c6b4c), MAT_COURT);
-    overlay(x0 + 1.5f, z0 + 1.5f, x1 - 1.5f, z1 - 1.5f, SH + 0.005f, hexc(0x9a4a3a), MAT_COURT);
+    float courtBase = SH + SURFACE_EPS;
+    overlay(x0, z0, x1, z1, courtBase, hexc(0x3c6b4c), MAT_COURT);
+    overlay(x0 + 1.5f, z0 + 1.5f, x1 - 1.5f, z1 - 1.5f, courtBase + SURFACE_STEP,
+            hexc(0x9a4a3a), MAT_COURT);
     Col line = hexc(0xeeeeea);
     auto L = [&](float ax, float az, float bx, float bz) {
-        V3 a(ax, SH + 0.008f, az), b(bx, SH + 0.008f, bz);
+        V3 a(ax, courtBase + SURFACE_STEP * 2, az), b(bx, courtBase + SURFACE_STEP * 2, bz);
         V3 d = norm(b - a), n = cross(V3(0, 1, 0), d) * 0.05f;
         SM.quadOut(a - n, b - n, b + n, a + n, V3(0, 1, 0), line, MAT_PLAIN);
     };
@@ -1973,8 +2069,13 @@ static void brownstone(float z0, int i) {
 static void buildSE() {
     for (int i = 0; i < 7; i++) brownstone(30.f + i * 6.f, i);
     building(16, 72, 30, 200, 20, 0, hexc(0x6e4a3a), 70);
-    facadeRow(V3(16, 0, 12), V3(-1, 0, 0), 18, 14, 71, true, 12, 20, 0);
-    facadeRow(V3(30, 0, 12), V3(0, 0, -1), 14, 18, 72, true, 12, 20, 0);
+    // One physical corner building, decorated from two street sides. Previously
+    // both facade rows generated a full 16..30 x 12..30 building volume, so two
+    // independent sets of walls occupied the same depth and fought across the facade.
+    // Keep the avenue-facing row as the actual shell and make the cross-street row
+    // decoration-only. Drop the +Z end wall at z=30 where the brownstones begin.
+    facadeRow(V3(16, 0, 12), V3(-1, 0, 0), 18, 14, 71, true, 12, 20, 0, 0, 16, true);
+    facadeRow(V3(30, 0, 12), V3(0, 0, -1), 14, 18, 72, true, 12, 20, 0, 0, 0, false);
     building(30, 45, 200, 200, 32, 1, hexc(0xb8ae9c), 73);
     building(69.5f, 12, 200, 45, 26, 0, hexc(0x7a4b3c), 74);
     // construction site behind a plywood fence, sidewalk shed over the sidewalk
@@ -2005,7 +2106,7 @@ static void buildSE() {
         }
     }
     SM.boxAA(V3(30.5f, SH + 3.3f, 7.5f), V3(69.5f, SH + 3.75f, 12.3f), hexc(0x3b5f3a), MAT_PAINTED);
-    overlay(30, 12.45f, 69.5f, 45, SH + 0.003f, hexc(0x8d8272), MAT_CONCRETE);
+    overlay(30, 12.45f, 69.5f, 45, SH + SURFACE_EPS, hexc(0x8d8272), MAT_CONCRETE);
     {   // dumpster with a plywood kicker leaning on it
         Col dc = hexc(0x2f6b3f), dt = hexc(0x3d7a4d);
         solidBox(38, 25, 0, 1.0f, 2.0f, SH, SH + 1.3f, dc, MAT_PAINTED, SURF_METAL, false, &dt);
@@ -2096,12 +2197,12 @@ static void newspaperBox(float x, float z, float yaw, float y0, Col col) {
 
 static void buildNorthPlaza() {
     // Start the transition before the old boundary so the extension feels connected to the original block.
-    float y = 0.008f;
+    float y = SURFACE_EPS;
     overlay(-8.8f, 58, 8.8f, 148, y, hexc(0x8e877c), MAT_PAVERS);
     for (float z = 62; z < 148; z += 8) {
-        overlay(-8.8f, z, 8.8f, z + 0.16f, y + 0.002f, hexc(0xb0aaa0), MAT_PLAIN);
+        overlay(-8.8f, z, 8.8f, z + 0.16f, y + SURFACE_STEP, hexc(0xb0aaa0), MAT_PLAIN);
     }
-    overlay(-0.12f, 58, 0.12f, 148, y + 0.003f, hexc(0x6f6b65), MAT_PLAIN);
+    overlay(-0.12f, 58, 0.12f, 148, y + SURFACE_STEP * 2, hexc(0x6f6b65), MAT_PLAIN);
 
     // The entry marker is close enough to be visible from the original play area.
     Col arch = hexc(0x343b38);
@@ -2184,8 +2285,8 @@ static void buildNorthPlaza() {
 
     // Small pavement marks and clutter keep the large open floor from reading as a featureless slab.
     for (float z : {69.f, 88.f, 112.f, 136.f}) {
-        overlay(-7.8f, z, -6.6f, z + 0.08f, y + 0.004f, hexc(0x6e6962), MAT_PLAIN);
-        overlay(6.4f, z + 2.2f, 7.7f, z + 2.28f, y + 0.004f, hexc(0x6e6962), MAT_PLAIN);
+        overlay(-7.8f, z, -6.6f, z + 0.08f, y + SURFACE_STEP * 3, hexc(0x6e6962), MAT_PLAIN);
+        overlay(6.4f, z + 2.2f, 7.7f, z + 2.28f, y + SURFACE_STEP * 3, hexc(0x6e6962), MAT_PLAIN);
     }
 }
 
@@ -2250,7 +2351,7 @@ static void parkedCars() {
 
 static void buildPromenade() {
     float top = SH;
-    overlay(-600, -86.6f, 600, -76.4f, top + 0.003f, hexc(0x8b6d4e), MAT_WOOD);
+    overlay(-600, -86.6f, 600, -76.4f, top + SURFACE_EPS, hexc(0x8b6d4e), MAT_WOOD);
     world.addBox(0, -81.5f, 0, 600, 5.1f, -0.3f, top, SURF_WOOD);
     // seawall + granite coping + railing
     SM.quadOut(V3(-600, top, RIVER_EDGE_Z), V3(600, top, RIVER_EDGE_Z), V3(600, WATER_LEVEL - 3, RIVER_EDGE_Z), V3(-600, WATER_LEVEL - 3, RIVER_EDGE_Z),
@@ -4617,10 +4718,10 @@ static void drawResults(long long score, long long best, bool newBest, float tim
 // ----------------------------------------------------------------------------
 struct Lighting {
     V3 sunDir = norm(V3(-0.62f, 0.5f, 0.6f));
-    V3 sunCol = V3(1.38f, 1.14f, 0.86f);
-    V3 skyTop = V3(0.3f, 0.48f, 0.76f), skyHorizon = V3(0.86f, 0.79f, 0.68f);
-    V3 groundCol = V3(0.36f, 0.32f, 0.28f), fogCol = V3(0.78f, 0.74f, 0.68f);
-    float fogDensity = 0.0042f;
+    V3 sunCol = V3(1.44f, 1.18f, 0.90f);
+    V3 skyTop = V3(0.30f, 0.48f, 0.76f), skyHorizon = V3(0.86f, 0.79f, 0.70f);
+    V3 groundCol = V3(0.31f, 0.29f, 0.27f), fogCol = V3(0.78f, 0.74f, 0.68f);
+    float fogDensity = 0.0041f;
 };
 static Lighting LIGHT;
 
@@ -4743,7 +4844,7 @@ static void streamDraw(GLuint vao, GLuint vbo, GLuint ebo, size_t& vcap, size_t&
 }
 
 static M4 lightMatrix(V3 focus) {
-    float R = 62.f;
+    float R = 52.f;
     V3 eye = focus + LIGHT.sunDir * 150.f;
     M4 view = mLookAt(eye, focus, V3(0, 1, 0));
     // snap to shadow texels to avoid shimmering
@@ -5173,7 +5274,7 @@ int main(int argc, char** argv) {
         SDL_GL_GetDrawableSize(win, &W, &H);
         resizeReflection(W, H);
         float aspect = (float)W / std::max(1, H);
-        M4 proj = mPerspective(cam.fov * PI / 180.f, aspect, 0.1f, 1500.f);
+        M4 proj = mPerspective(cam.fov * PI / 180.f, aspect, 0.2f, 1500.f);
         M4 view = mLookAt(cam.pos, cam.look, V3(0, 1, 0));
         M4 vp = proj * view;
         V3 camFwd = norm(cam.look - cam.pos);
@@ -5193,7 +5294,7 @@ int main(int argc, char** argv) {
         RD.dynMesh.upload(DM, true);
 
         V3 focus = mode == GM_TITLE ? V3(14, 0, -26) : visualPlayerPos;
-        M4 lightVP = lightMatrix(focus + camFwd * 25.f);
+        M4 lightVP = lightMatrix(focus + camFwd * 20.f);
         // shadow pass
         gl.BindFramebuffer(GL_FRAMEBUFFER, RD.shadowFbo);
         glViewport(0, 0, RD.shadowRes, RD.shadowRes);

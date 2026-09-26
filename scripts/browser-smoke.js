@@ -20,6 +20,19 @@ async function inspectPage(page, label) {
   return messages;
 }
 
+async function dispatchPointer(page, selector, type, init) {
+  await page.evaluate(({ selector, type, init }) => {
+    const element = document.querySelector(selector);
+    if (!element) throw new Error(`Missing pointer target: ${selector}`);
+
+    element.dispatchEvent(new PointerEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      ...init
+    }));
+  }, { selector, type, init });
+}
+
 (async () => {
   const browser = await chromium.launch({
     headless: true,
@@ -61,6 +74,9 @@ async function inspectPage(page, label) {
   }
 
   await desktop.screenshot({ path: 'runtime-smoke.png', fullPage: true });
+  await desktop.keyboard.press('Enter');
+  await desktop.waitForTimeout(1200);
+  await desktop.screenshot({ path: 'runtime-smoke-gameplay.png', fullPage: true });
 
   const mobileContext = await browser.newContext({
     viewport: { width: 844, height: 390 },
@@ -244,15 +260,15 @@ async function inspectPage(page, label) {
   if (!dpadBox || !dpadBox.width || !dpadBox.height) throw new Error('D-pad has no layout box');
   const dpadX = dpadBox.x + dpadBox.width * .15;
   const dpadY = dpadBox.y + dpadBox.height * .15;
-  await mobile.dispatchEvent('#dpad', 'pointerdown', {
+  await dispatchPointer(mobile, '#dpad', 'pointerdown', {
     pointerId: 22, pointerType: 'touch', clientX: dpadX, clientY: dpadY, isPrimary: true
   });
-  await mobile.dispatchEvent('#dpad', 'pointerup', {
+  await dispatchPointer(mobile, '#dpad', 'pointerup', {
     pointerId: 22, pointerType: 'touch', clientX: dpadX, clientY: dpadY, isPrimary: true
   });
   await mobile.waitForTimeout(100);
 
-  await mobile.dispatchEvent('#dpad', 'pointerdown', {
+  await dispatchPointer(mobile, '#dpad', 'pointerdown', {
     pointerId: 23, pointerType: 'touch',
     clientX: dpadBox.x + dpadBox.width * .78,
     clientY: dpadBox.y + dpadBox.height * .50,
@@ -262,7 +278,7 @@ async function inspectPage(page, label) {
     active: document.querySelector('#dpad').classList.contains('joystick-active'),
     x: getComputedStyle(document.querySelector('#dpad')).getPropertyValue('--joy-x').trim()
   }));
-  await mobile.dispatchEvent('#dpad', 'pointerup', {
+  await dispatchPointer(mobile, '#dpad', 'pointerup', {
     pointerId: 23, pointerType: 'touch',
     clientX: dpadBox.x + dpadBox.width * .78,
     clientY: dpadBox.y + dpadBox.height * .50,
@@ -286,16 +302,16 @@ async function inspectPage(page, label) {
     }
   }
 
-  await mobile.dispatchEvent('#dpad', 'pointerdown', {
+  await dispatchPointer(mobile, '#dpad', 'pointerdown', {
     pointerId: 31, pointerType: 'touch', clientX: dpadX, clientY: dpadY, isPrimary: true
   });
   await mobile.dispatchEvent('body', 'pointerout', {
     pointerId: 31, pointerType: 'touch', clientX: -1, clientY: -1, relatedTarget: null
   });
-  await mobile.dispatchEvent('#dpad', 'pointerdown', {
+  await dispatchPointer(mobile, '#dpad', 'pointerdown', {
     pointerId: 32, pointerType: 'touch', clientX: dpadX, clientY: dpadY, isPrimary: true
   });
-  await mobile.dispatchEvent('#dpad', 'pointerup', {
+  await dispatchPointer(mobile, '#dpad', 'pointerup', {
     pointerId: 32, pointerType: 'touch', clientX: dpadX, clientY: dpadY, isPrimary: true
   });
   const recovered = await mobile.evaluate(() => ({
