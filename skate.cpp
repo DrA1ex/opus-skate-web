@@ -39,6 +39,7 @@
 #endif
 #endif
 #include <cstdio>
+#include <cerrno>
 #include <cstdlib>
 #include <cstring>
 #include <cstdint>
@@ -2564,6 +2565,26 @@ struct Input {
     bool grindPress = false, manualPress = false;
 };
 
+// Keep one-shot inputs until a fixed 120 Hz physics tick consumes them.
+// Adapted from intra-secdsm/OpusSkate commit 62815a0.
+static void queuePresses(Input& pending, const Input& frame, bool playing) {
+    if (!playing) { pending = Input(); return; }
+    pending.olliePress |= frame.olliePress;
+    pending.flipPress |= frame.flipPress;
+    pending.grabPress |= frame.grabPress;
+    pending.grindPress |= frame.grindPress;
+    pending.manualPress |= frame.manualPress;
+}
+
+static void takePresses(Input& pending, Input& tick) {
+    tick.olliePress = pending.olliePress;
+    tick.flipPress = pending.flipPress;
+    tick.grabPress = pending.grabPress;
+    tick.grindPress = pending.grindPress;
+    tick.manualPress = pending.manualPress;
+    pending = Input();
+}
+
 enum PState { ST_RIDE = 0, ST_AIR, ST_GRIND, ST_MANUAL, ST_BAIL };
 
 static const float GRAV = 12.5f;
@@ -2763,11 +2784,12 @@ struct Player {
         // pop straight up (popping along a ramp normal would bleed forward speed on kickers)
         if (vel.y < 0 && !fromRail) vel.y *= 0.5f;
         vel += V3(0, 1, 0) * v;
-        if (!fromRail && n.y < 0.6f) qpAir = true;
+        // Preserve vert-air state for ollies popped from steep transitions.
+        // Fix adapted from intra-secdsm/OpusSkate commit 62815a0.
+        qpAir = !fromRail && n.y < 0.6f;
         fromManual = false;
         state = ST_AIR;
         airT = 0;
-        qpAir = false;
         trickThisAir = false;
         crouching = false;
         crouchT = 0;
@@ -4933,6 +4955,23 @@ static SDL_Scancode keyName(const std::string& k) {
     return SDL_SCANCODE_UNKNOWN;
 }
 
+// Keep screenshot failures visible to callers/CI instead of silently succeeding.
+// Adapted from intra-secdsm/OpusSkate commit 62815a0.
+static bool writePpm(const std::string& path, int w, int h, const std::vector<uint8_t>& pixels) {
+    FILE* f = fopen(path.c_str(), "wb");
+    if (!f) {
+        fprintf(stderr, "Could not open screenshot '%s': %s\n", path.c_str(), strerror(errno));
+        return false;
+    }
+    bool ok = fprintf(f, "P6\n%d %d\n255\n", w, h) >= 0;
+    for (int y = h - 1; y >= 0 && ok; --y)
+        ok = fwrite(&pixels[(size_t)y * w * 3], 1, (size_t)w * 3, f) == (size_t)w * 3;
+    int error = ok ? 0 : (errno ? errno : EIO);
+    if (fclose(f) != 0 && !error) error = errno ? errno : EIO;
+    if (error) fprintf(stderr, "Could not write screenshot '%s': %s\n", path.c_str(), strerror(error));
+    return error == 0;
+}
+
 #ifdef __EMSCRIPTEN__
 static Uint8 mobileKeys[SDL_NUM_SCANCODES] = {};
 static SDL_Window* webWindow = nullptr;
@@ -5101,12 +5140,13 @@ int main(int argc, char** argv) {
 
     GameMode mode = forceTitle ? GM_TITLE : (startPlaying || shotMode ? GM_PLAY : (startTitle ? GM_TITLE : GM_PLAY));
     bool running = true, showFps = false, session = false, newBest = false;
+    int exitCode = 0;
     int helpPage = webMobileMode ? 0 : (startHelpPage >= 0 ? startHelpPage : (noHelp ? 0 : 1));   // 0 hidden, 1 controls, 2 trick list
     float helpTimer = webMobileMode ? -1.f : 14.f, sessionLeft = 0, time = 0, fps = 60, ambientT = 8.f;
     long long sessionBest = 0, lastScoreSeen = 0;
     double acc = 0;
     Uint64 prevCounter = SDL_GetPerformanceCounter();
-    Input latched;
+    Input latched, pendingPresses;
     int frame = 0;
     Input lastIn;
     auto startSession = [&]() {
@@ -5207,6 +5247,7 @@ int main(int argc, char** argv) {
         in.olliePress |= latched.olliePress; in.flipPress |= latched.flipPress; in.grabPress |= latched.grabPress;
         in.grindPress |= latched.grindPress; in.manualPress |= latched.manualPress;
         lastIn = in;
+        queuePresses(pendingPresses, in, mode == GM_PLAY);
         latched = Input();
 
         // ---------------------------------------------------------------- simulation
@@ -5216,8 +5257,8 @@ int main(int argc, char** argv) {
             int n = 0;
             while (acc >= step && n < 12) {
                 P.prevPos = P.pos;
+                takePresses(pendingPresses, in);
                 P.update(in, step);
-                in.olliePress = in.flipPress = in.grabPress = in.grindPress = in.manualPress = false;
                 acc -= step;
                 n++;
             }
@@ -5391,14 +5432,11 @@ int main(int argc, char** argv) {
             gl.BindFramebuffer(GL_FRAMEBUFFER, RD.mainFbo);
             glReadBuffer(RD.mainFbo ? GL_COLOR_ATTACHMENT0 : GL_BACK);
             glReadPixels(0, 0, W, H, GL_RGB, GL_UNSIGNED_BYTE, px.data());
-            FILE* f = fopen(shotPath.c_str(), "wb");
-            if (f) {
-                fprintf(f, "P6\n%d %d\n255\n", W, H);
-                for (int y = H - 1; y >= 0; y--) fwrite(&px[(size_t)y * W * 3], 1, (size_t)W * 3, f);
-                fclose(f);
+            if (!writePpm(shotPath, W, H, px)) exitCode = 1;
+            else {
+                static const char* SN[] = {"RIDE", "AIR", "GRIND", "MANUAL", "BAIL"};
+                printf("shot frame %d pos(%.2f %.2f %.2f) state=%s score=%lld combo=%s\n", frame, P.pos.x, P.pos.y, P.pos.z, SN[P.state], P.score, P.combo.text(80).c_str());
             }
-            static const char* SN[] = {"RIDE", "AIR", "GRIND", "MANUAL", "BAIL"};
-            printf("shot frame %d pos(%.2f %.2f %.2f) state=%s score=%lld combo=%s\n", frame, P.pos.x, P.pos.y, P.pos.z, SN[P.state], P.score, P.combo.text(80).c_str());
             running = false;
         }
         SDL_GL_SwapWindow(win);
@@ -5411,5 +5449,5 @@ int main(int argc, char** argv) {
     SDL_GL_DeleteContext(ctx);
     SDL_DestroyWindow(win);
     SDL_Quit();
-    return 0;
+    return exitCode;
 }
