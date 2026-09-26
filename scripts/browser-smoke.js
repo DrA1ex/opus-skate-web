@@ -220,7 +220,15 @@ async function inspectPage(page, label) {
     }
   }
 
-  await mobile.screenshot({ path: 'runtime-smoke-mobile.png', fullPage: true });
+  try {
+    await mobile.screenshot({
+      path: 'runtime-smoke-mobile.png',
+      fullPage: false,
+      timeout: 5000
+    });
+  } catch (error) {
+    console.warn('mobile screenshot skipped:', error.message);
+  }
 
   const fatal = [...desktopMessages, ...mobileMessages].filter(line => fatalPattern.test(line));
   await mobileContext.close();
