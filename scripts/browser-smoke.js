@@ -76,6 +76,39 @@ async function inspectPage(page, label) {
   }
 
   await mobile.waitForTimeout(4000);
+
+  const mobileTitleState = await mobile.evaluate(() => {
+    const menu = document.querySelector('#mobile-title-menu');
+    const dpad = document.querySelector('#dpad');
+    const actions = document.querySelector('#actions');
+    return {
+      menuVisible: menu && getComputedStyle(menu).display !== 'none',
+      dpadHidden: dpad && getComputedStyle(dpad).display === 'none',
+      actionsHidden: actions && getComputedStyle(actions).display === 'none',
+      setter: typeof Module._web_set_mobile === 'function'
+    };
+  });
+  console.log('mobile title state:', JSON.stringify(mobileTitleState));
+  if (!mobileTitleState.menuVisible || !mobileTitleState.dpadHidden ||
+      !mobileTitleState.actionsHidden || !mobileTitleState.setter) {
+    throw new Error('Mobile title menu did not initialize correctly');
+  }
+
+  await mobile.dispatchEvent('[data-menu-action="9"]', 'pointerdown', {
+    pointerId: 7, pointerType: 'touch', isPrimary: true
+  });
+  await mobile.waitForTimeout(250);
+
+  const afterStartState = await mobile.evaluate(() => ({
+    menuHidden: getComputedStyle(document.querySelector('#mobile-title-menu')).display === 'none',
+    dpadVisible: getComputedStyle(document.querySelector('#dpad')).display !== 'none',
+    actionsVisible: getComputedStyle(document.querySelector('#actions')).display !== 'none'
+  }));
+  console.log('mobile after start:', JSON.stringify(afterStartState));
+  if (!afterStartState.menuHidden || !afterStartState.dpadVisible || !afterStartState.actionsVisible) {
+    throw new Error('Mobile gameplay controls did not replace the title menu');
+  }
+
   const mobileState = await mobile.evaluate(() => {
     const controls = document.querySelector('#touch-controls');
     const dpad = document.querySelector('#dpad');
@@ -219,6 +252,24 @@ async function inspectPage(page, label) {
       throw new Error(`Missing mobile input transition: ${expected[0]},${expected[1]}`);
     }
   }
+
+  await mobile.dispatchEvent('#dpad', 'pointerdown', {
+    pointerId: 31, pointerType: 'touch', clientX: dpadX, clientY: dpadY, isPrimary: true
+  });
+  await mobile.dispatchEvent('body', 'pointerout', {
+    pointerId: 31, pointerType: 'touch', clientX: -1, clientY: -1, relatedTarget: null
+  });
+  await mobile.dispatchEvent('#dpad', 'pointerdown', {
+    pointerId: 32, pointerType: 'touch', clientX: dpadX, clientY: dpadY, isPrimary: true
+  });
+  await mobile.dispatchEvent('#dpad', 'pointerup', {
+    pointerId: 32, pointerType: 'touch', clientX: dpadX, clientY: dpadY, isPrimary: true
+  });
+  const recovered = await mobile.evaluate(() => ({
+    active: [...document.querySelectorAll('#dpad .active')].map(element => element.id)
+  }));
+  console.log('stale dpad recovery:', JSON.stringify(recovered));
+  if (recovered.active.length) throw new Error('D-pad remained stuck after pointer loss recovery');
 
   try {
     await mobile.screenshot({

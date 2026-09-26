@@ -48,6 +48,33 @@
     }
     .touch-enabled #touch-controls { display: block; }
 
+    #mobile-title-menu {
+      position: absolute; left: 50%; top: 43%; transform: translate(-50%, -50%);
+      display: none; flex-direction: column; gap: 12px; width: min(78vw, 320px);
+      pointer-events: auto; z-index: 14;
+    }
+    .touch-enabled.mobile-title #mobile-title-menu { display: flex; }
+    .touch-enabled.mobile-title #dpad,
+    .touch-enabled.mobile-title #actions { display: none; }
+
+    .mobile-menu-button {
+      min-height: 58px; border: 1px solid rgba(255,255,255,.38); border-radius: 14px;
+      background: rgba(12, 15, 20, .72); color: #fff;
+      font: 700 15px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: .05em; text-shadow: 0 1px 2px #000;
+      backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+      touch-action: manipulation;
+    }
+    .mobile-menu-button:active { transform: scale(.97); background: rgba(55, 60, 70, .82); }
+    .mobile-menu-button:disabled { opacity: .45; }
+
+    @media (orientation: landscape) {
+      #mobile-title-menu {
+        top: 50%; width: min(60vw, 520px); flex-direction: row;
+      }
+      .mobile-menu-button { flex: 1; }
+    }
+
     .control-button {
       position: absolute; width: var(--control-size); height: var(--control-size);
       border: 1px solid var(--control-border); border-radius: 50%;
@@ -114,6 +141,11 @@
     <div id="status">Loading…</div>
 
     <div id="touch-controls" aria-hidden="true">
+      <div id="mobile-title-menu" aria-label="Game mode">
+        <button class="mobile-menu-button" data-menu-action="9" disabled>FREE SKATE</button>
+        <button class="mobile-menu-button" data-menu-action="10" disabled>2 MIN SESSION</button>
+      </div>
+
       <div id="dpad" aria-label="Movement controls">
         <div class="control-button" id="dpad-up" data-dir="up">▲</div>
         <div class="control-button" id="dpad-down" data-dir="down">▼</div>
@@ -154,6 +186,7 @@
     const touchMode = forcedTouch || navigator.maxTouchPoints > 0 || matchMedia('(pointer: coarse)').matches;
     document.documentElement.classList.toggle('touch-enabled', touchMode);
     touchControls.setAttribute('aria-hidden', touchMode ? 'false' : 'true');
+    stage.classList.toggle('mobile-title', touchMode);
 
     let runtimeReady = false;
     let lastGameWidth = 0;
@@ -272,6 +305,16 @@
       setDirections(new Set());
     }
 
+    function releasePointer(pointerId) {
+      if (pointerId === dpadPointer) releaseDpad();
+
+      const name = actionPointers.get(pointerId);
+      if (name) {
+        actionPointers.delete(pointerId);
+        if (![...actionPointers.values()].includes(name)) setPressed(name, false);
+      }
+    }
+
     function releaseAll() {
       releaseDpad();
       for (const name of ['ollie', 'flip', 'grab', 'grind', 'manual']) setPressed(name, false);
@@ -279,8 +322,10 @@
     }
 
     dpad.addEventListener('pointerdown', (event) => {
-      if (!touchMode || dpadPointer !== null) return;
+      if (!touchMode) return;
       event.preventDefault();
+
+      if (dpadPointer !== null && dpadPointer !== event.pointerId) releaseDpad();
       dpadPointer = event.pointerId;
       try { dpad.setPointerCapture?.(event.pointerId); } catch {}
       updateDpad(event.clientX, event.clientY);
@@ -292,6 +337,11 @@
       event.preventDefault();
       updateDpad(event.clientX, event.clientY);
     });
+
+    document.addEventListener('pointermove', (event) => {
+      if (event.pointerId !== dpadPointer) return;
+      updateDpad(event.clientX, event.clientY);
+    }, true);
 
     for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
       dpad.addEventListener(type, (event) => {
@@ -311,16 +361,22 @@
         canvas.focus({ preventScroll: true });
       });
 
-      const release = (event) => {
-        if (actionPointers.get(event.pointerId) !== name) return;
-        actionPointers.delete(event.pointerId);
-        if (![...actionPointers.values()].includes(name)) setPressed(name, false);
-      };
+      const release = (event) => releasePointer(event.pointerId);
 
       button.addEventListener('pointerup', release);
       button.addEventListener('pointercancel', release);
       button.addEventListener('lostpointercapture', release);
     });
+
+    document.addEventListener('pointerup', (event) => releasePointer(event.pointerId), true);
+    document.addEventListener('pointercancel', (event) => releasePointer(event.pointerId), true);
+    window.addEventListener('pointerout', (event) => {
+      if (!event.relatedTarget) releasePointer(event.pointerId);
+    });
+    document.addEventListener('touchend', (event) => {
+      if (event.touches.length === 0) releaseAll();
+    }, { passive: true, capture: true });
+    document.addEventListener('touchcancel', releaseAll, { passive: true, capture: true });
 
     window.addEventListener('resize', queueViewportSync);
     window.addEventListener('orientationchange', () => {
@@ -338,6 +394,22 @@
     window.addEventListener('blur', releaseAll);
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) releaseAll();
+    });
+
+    function startMobileGame(action) {
+      if (!runtimeReady || !Module._mobile_input) return;
+
+      releaseAll();
+      Module._mobile_input(action, 1);
+      Module._mobile_input(action, 0);
+      stage.classList.remove('mobile-title');
+    }
+
+    document.querySelectorAll('[data-menu-action]').forEach((button) => {
+      button.addEventListener('pointerdown', (event) => {
+        event.preventDefault();
+        startMobileGame(Number(button.dataset.menuAction));
+      });
     });
 
     window.addEventListener('keydown', (event) => {
@@ -359,6 +431,8 @@
       },
       onRuntimeInitialized: () => {
         runtimeReady = true;
+        Module._web_set_mobile?.(touchMode ? 1 : 0);
+        document.querySelectorAll('[data-menu-action]').forEach((button) => { button.disabled = false; });
         for (const name of pressed) sendInput(name, true);
         queueViewportSync();
         canvas.focus({ preventScroll: true });

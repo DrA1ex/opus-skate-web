@@ -4093,6 +4093,8 @@ static void popup(const std::string& s, Col c, float scale, float life) {
     if (popups.size() > 6) popups.erase(popups.begin());
     popups.push_back({s, c, scale, 0, life});
 }
+static bool webMobileMode = false;
+
 static std::string fmtNum(long long v) {
     std::string s = std::to_string(v < 0 ? -v : v), o;
     int c = 0;
@@ -4236,7 +4238,7 @@ static bool projectToScreen(const M4& vp, V3 p, float& sx, float& sy) {
 }
 
 static void drawGameHud(const Player& pl, float time, float sessionLeft, bool session, int helpPage, float helpAlpha, const M4& vp, V3 cam, bool showFps, float fps) {
-    bool showHelp = helpPage > 0;
+    bool showHelp = !webMobileMode && helpPage > 0;
     float U = hud.U;
     // score
     hud.text(24 * U, 20 * U, 2 * U, "SCORE", hexc(0xffd23a), 1);
@@ -4320,16 +4322,36 @@ static void drawGameHud(const Player& pl, float time, float sessionLeft, bool se
     char sb[48];
     snprintf(sb, sizeof sb, "%d MPH", (int)(len(pl.vel) * 2.237f + 0.5f));
     hud.text(24 * U, hud.H - 30 * U, 2 * U, sb, Col(220, 220, 220), 0.8f);
-    if (!showHelp) hud.text(hud.W - 24 * U, hud.H - 30 * U, 1.5f * U, "H: CONTROLS / TRICK LIST   M: MUSIC   V: CAMERA   ESC: PAUSE", Col(220, 220, 220), 0.75f, 2);
-    else hud.text(hud.W - 24 * U, hud.H - 30 * U, 1.5f * U, helpPage == 1 ? "H: TRICK LIST" : "H: HIDE", hexc(0xffd23a), 0.9f, 2);
-    if (helpPage == 1 && helpAlpha > 0.01f) drawHelpPanel(20 * U, 110 * U, helpAlpha, 1.5f);
-    if (helpPage == 2 && helpAlpha > 0.01f) drawTrickPanel(20 * U, 110 * U, helpAlpha);
+    if (!webMobileMode) {
+        if (!showHelp) hud.text(hud.W - 24 * U, hud.H - 30 * U, 1.5f * U, "H: CONTROLS / TRICK LIST   M: MUSIC   V: CAMERA   ESC: PAUSE", Col(220, 220, 220), 0.75f, 2);
+        else hud.text(hud.W - 24 * U, hud.H - 30 * U, 1.5f * U, helpPage == 1 ? "H: TRICK LIST" : "H: HIDE", hexc(0xffd23a), 0.9f, 2);
+        if (helpPage == 1 && helpAlpha > 0.01f) drawHelpPanel(20 * U, 110 * U, helpAlpha, 1.5f);
+        if (helpPage == 2 && helpAlpha > 0.01f) drawTrickPanel(20 * U, 110 * U, helpAlpha);
+    }
     if (showFps) { snprintf(sb, sizeof sb, "%.0f FPS", fps); hud.text(24 * U, hud.H - 50 * U, 1.5f * U, sb, Col(160, 255, 160), 0.8f); }
 }
 
 static void drawTitle(float time) {
     float U = hud.U;
     hud.rect(0, 0, hud.W, hud.H, Col(0, 0, 0), 0.25f);
+
+    if (webMobileMode) {
+        const std::string title = "CONCRETE JUNGLE";
+        const std::string subtitle = "NEW YORK CITY STREET SKATING";
+        bool portrait = hud.H > hud.W;
+        float titleMax = (portrait ? 5.f : 8.f) * U;
+        float titleSc = std::min(titleMax, (hud.W - 28 * U) / hud.textW(title, 1.f));
+        float subtitleMax = (portrait ? 1.7f : 2.2f) * U;
+        float subtitleSc = std::min(subtitleMax, (hud.W - 28 * U) / hud.textW(subtitle, 1.f));
+        float y = hud.H * (portrait ? 0.11f : 0.10f);
+        float wob = std::sin(time * 2.f) * 2 * U;
+
+        hud.text(hud.W * 0.5f + 3 * U, y + 3 * U + wob, titleSc, title, hexc(0xc01e1e), 1, 1, false);
+        hud.text(hud.W * 0.5f, y + wob, titleSc, title, hexc(0xffd23a), 1, 1, false);
+        hud.text(hud.W * 0.5f, y + 9 * titleSc, subtitleSc, subtitle, Col(255, 255, 255), 0.95f, 1);
+        return;
+    }
+
     float y = hud.H * 0.16f;
     float wob = std::sin(time * 2.f) * 3 * U;
     hud.text(hud.W * 0.5f + 5 * U, y + 5 * U + wob, 10 * U, "CONCRETE JUNGLE", hexc(0xc01e1e), 1, 1, false);
@@ -4593,7 +4615,9 @@ extern "C" EMSCRIPTEN_KEEPALIVE void mobile_input(int action, int down) {
         SDL_SCANCODE_J,
         SDL_SCANCODE_K,
         SDL_SCANCODE_L,
-        SDL_SCANCODE_I
+        SDL_SCANCODE_I,
+        SDL_SCANCODE_RETURN,
+        SDL_SCANCODE_T
     };
 
     if (action < 0 || action >= (int)(sizeof(actions) / sizeof(actions[0]))) return;
@@ -4619,6 +4643,10 @@ extern "C" EMSCRIPTEN_KEEPALIVE void mobile_input(int action, int down) {
 extern "C" EMSCRIPTEN_KEEPALIVE void web_resize(int width, int height) {
     if (!webWindow || width < 1 || height < 1) return;
     SDL_SetWindowSize(webWindow, width, height);
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE void web_set_mobile(int enabled) {
+    webMobileMode = enabled != 0;
 }
 #endif
 
@@ -4741,8 +4769,8 @@ int main(int argc, char** argv) {
 
     GameMode mode = forceTitle ? GM_TITLE : (startPlaying || shotMode ? GM_PLAY : (startTitle ? GM_TITLE : GM_PLAY));
     bool running = true, showFps = false, session = false, newBest = false;
-    int helpPage = startHelpPage >= 0 ? startHelpPage : (noHelp ? 0 : 1);   // 0 hidden, 1 controls, 2 trick list
-    float helpTimer = 14.f, sessionLeft = 0, time = 0, fps = 60, ambientT = 8.f;
+    int helpPage = webMobileMode ? 0 : (startHelpPage >= 0 ? startHelpPage : (noHelp ? 0 : 1));   // 0 hidden, 1 controls, 2 trick list
+    float helpTimer = webMobileMode ? -1.f : 14.f, sessionLeft = 0, time = 0, fps = 60, ambientT = 8.f;
     long long sessionBest = 0, lastScoreSeen = 0;
     double acc = 0;
     Uint64 prevCounter = SDL_GetPerformanceCounter();
@@ -4781,7 +4809,7 @@ int main(int argc, char** argv) {
                     SDL_SetWindowFullscreen(win, fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
                 }
                 if (mode == GM_TITLE) {
-                    if (sc == SDL_SCANCODE_RETURN || sc == SDL_SCANCODE_KP_ENTER || sc == SDL_SCANCODE_SPACE) { mode = GM_PLAY; session = false; sfx(SFX_MENU); helpTimer = 14.f; helpPage = 1; }
+                    if (sc == SDL_SCANCODE_RETURN || sc == SDL_SCANCODE_KP_ENTER || sc == SDL_SCANCODE_SPACE) { mode = GM_PLAY; session = false; sfx(SFX_MENU); helpTimer = webMobileMode ? -1.f : 14.f; helpPage = webMobileMode ? 0 : 1; }
                     else if (sc == SDL_SCANCODE_T) { startSession(); sfx(SFX_MENU); }
                     else if (sc == SDL_SCANCODE_ESCAPE) running = false;
                 } else if (mode == GM_PLAY) {

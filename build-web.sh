@@ -14,7 +14,7 @@ em++ "$ROOT/skate.cpp" \
   -sALLOW_MEMORY_GROWTH=1 \
   -sASYNCIFY \
   -sASSERTIONS=1 \
-  -sEXPORTED_FUNCTIONS='["_main","_mobile_input","_web_resize"]' \
+  -sEXPORTED_FUNCTIONS='["_main","_mobile_input","_web_resize","_web_set_mobile"]' \
   --shell-file "$ROOT/web/shell.html" \
   -o "$ROOT/dist/index.html"
 
