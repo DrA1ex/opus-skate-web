@@ -4,6 +4,14 @@ Browser/WebAssembly port of [OminousIndustries/OpusSkate](https://github.com/Omi
 
 The goal is to preserve the original game logic, physics, level generation, visuals, audio and controls as closely as possible while making the game playable directly in a modern browser.
 
+## Features
+
+- Full browser port compiled to WebAssembly/WebGL2 — no native installation required.
+- Mobile/touch support with a dedicated on-screen joystick and trick controls.
+- Phone portrait mode is a first-class layout, with responsive HUD/title positioning and live orientation changes.
+- Mobile-specific title menu for Free Skate and 2 Minute Session.
+- Multi-touch input, so movement and trick buttons can be held at the same time.
+
 ## Play
 
 Once GitHub Pages is enabled for this repository, the current `main` build is published automatically at:

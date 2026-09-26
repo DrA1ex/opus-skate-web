@@ -4273,7 +4273,11 @@ static void drawGameHud(const Player& pl, float time, float sessionLeft, bool se
         hud.text(sx, sy - h + 6 * U, sc, b.text, Col(20, 20, 20), a, 1, false);
     }
     // combo
-    float cy = hud.H - 120 * U;
+    // Touch controls occupy the bottom of mobile screens. Keep combo/trick
+    // feedback above them so it stays readable while playing.
+    float cy = webMobileMode
+        ? hud.H - std::min(280.f * U, hud.H * 0.58f)
+        : hud.H - 120 * U;
     if (pl.combo.active()) {
         std::string t = pl.combo.text(200);
         float sc = 2 * U;

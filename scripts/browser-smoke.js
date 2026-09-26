@@ -112,6 +112,7 @@ async function inspectPage(page, label) {
   const mobileState = await mobile.evaluate(() => {
     const controls = document.querySelector('#touch-controls');
     const dpad = document.querySelector('#dpad');
+    const joystickKnob = document.querySelector('#dpad-knob');
     const actions = [...document.querySelectorAll('[data-action]')].map(button => button.dataset.action);
     const canvas = document.querySelector('#canvas');
     const stage = document.querySelector('#stage');
@@ -124,6 +125,7 @@ async function inspectPage(page, label) {
       touchEnabled: document.documentElement.classList.contains('touch-enabled'),
       controlsVisible: controls && getComputedStyle(controls).display !== 'none',
       dpadVisible: dpad && dpad.getBoundingClientRect().width > 0,
+      joystickKnob: !!joystickKnob,
       actions,
       bridge: typeof Module._mobile_input === 'function',
       viewport: { width: innerWidth, height: innerHeight },
@@ -135,7 +137,8 @@ async function inspectPage(page, label) {
 
   console.log('mobile state:', JSON.stringify(mobileState));
   const expectedActions = ['flip', 'grind', 'ollie', 'grab', 'manual'];
-  if (!mobileState.touchEnabled || !mobileState.controlsVisible || !mobileState.dpadVisible || !mobileState.bridge) {
+  if (!mobileState.touchEnabled || !mobileState.controlsVisible || !mobileState.dpadVisible ||
+      !mobileState.bridge || !mobileState.joystickKnob) {
     throw new Error('Mobile controls did not initialize correctly');
   }
   for (const action of expectedActions) {
@@ -244,6 +247,32 @@ async function inspectPage(page, label) {
     pointerId: 22, pointerType: 'touch', clientX: dpadX, clientY: dpadY, isPrimary: true
   });
   await mobile.waitForTimeout(100);
+
+  await mobile.dispatchEvent('#dpad', 'pointerdown', {
+    pointerId: 23, pointerType: 'touch',
+    clientX: dpadBox.x + dpadBox.width * .78,
+    clientY: dpadBox.y + dpadBox.height * .50,
+    isPrimary: true
+  });
+  const joystickActive = await mobile.evaluate(() => ({
+    active: document.querySelector('#dpad').classList.contains('joystick-active'),
+    x: getComputedStyle(document.querySelector('#dpad')).getPropertyValue('--joy-x').trim()
+  }));
+  await mobile.dispatchEvent('#dpad', 'pointerup', {
+    pointerId: 23, pointerType: 'touch',
+    clientX: dpadBox.x + dpadBox.width * .78,
+    clientY: dpadBox.y + dpadBox.height * .50,
+    isPrimary: true
+  });
+  const joystickReleased = await mobile.evaluate(() => ({
+    active: document.querySelector('#dpad').classList.contains('joystick-active'),
+    x: getComputedStyle(document.querySelector('#dpad')).getPropertyValue('--joy-x').trim()
+  }));
+  console.log('joystick visual state:', JSON.stringify({ joystickActive, joystickReleased }));
+  if (!joystickActive.active || !joystickActive.x || joystickActive.x === '0px' ||
+      joystickReleased.active || joystickReleased.x !== '0px') {
+    throw new Error('Joystick visual feedback did not move and reset correctly');
+  }
 
   const inputCalls = await mobile.evaluate(() => window.__mobileInputCalls);
   console.log('mobile input calls:', JSON.stringify(inputCalls));
