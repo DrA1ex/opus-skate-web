@@ -223,9 +223,11 @@ async function inspectPage(page, label) {
     };
   });
 
-  const ollie = mobile.locator('[data-action="ollie"]');
-  const ollieBox = await ollie.boundingBox();
-  if (!ollieBox) throw new Error('OLLIE button has no layout box');
+  const ollieBox = await mobile.evaluate(() => {
+    const rect = document.querySelector('[data-action="ollie"]').getBoundingClientRect();
+    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+  });
+  if (!ollieBox || !ollieBox.width || !ollieBox.height) throw new Error('OLLIE button has no layout box');
   const ollieX = ollieBox.x + ollieBox.width / 2;
   const ollieY = ollieBox.y + ollieBox.height / 2;
   await mobile.dispatchEvent('[data-action="ollie"]', 'pointerdown', {
@@ -235,9 +237,11 @@ async function inspectPage(page, label) {
     pointerId: 11, pointerType: 'touch', clientX: ollieX, clientY: ollieY, isPrimary: false
   });
 
-  const dpad = mobile.locator('#dpad');
-  const dpadBox = await dpad.boundingBox();
-  if (!dpadBox) throw new Error('D-pad has no layout box');
+  const dpadBox = await mobile.evaluate(() => {
+    const rect = document.querySelector('#dpad').getBoundingClientRect();
+    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+  });
+  if (!dpadBox || !dpadBox.width || !dpadBox.height) throw new Error('D-pad has no layout box');
   const dpadX = dpadBox.x + dpadBox.width * .15;
   const dpadY = dpadBox.y + dpadBox.height * .15;
   await mobile.dispatchEvent('#dpad', 'pointerdown', {
