@@ -24,12 +24,18 @@
 //     I or Shift (+W) ... manual / nose manual (W/S keep balance) -- links combos
 //     R reset  H help  M music  V camera  T 2-minute session  Esc pause  F11 fullscreen
 // ============================================================================
+#ifdef __EMSCRIPTEN__
+#include <SDL2/SDL.h>
+#include <GLES3/gl3.h>
+#include <emscripten.h>
+#else
 #if __has_include(<SDL2/SDL.h>)
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_opengl.h>
 #else
 #include <SDL.h>
 #include <SDL_opengl.h>
+#endif
 #endif
 #include <cstdio>
 #include <cstdlib>
@@ -496,7 +502,7 @@ struct GpuMesh {
 // ----------------------------------------------------------------------------
 // Shaders (GLSL 3.30 core). All surface detail is procedural.
 // ----------------------------------------------------------------------------
-static const char* WORLD_VS = R"(#version 330 core
+static const char* WORLD_VS = R"(#version 300 es\nprecision highp float;\nprecision highp int;
 layout(location=0) in vec3 aPos;
 layout(location=1) in vec3 aNrm;
 layout(location=2) in vec3 aCol;
@@ -504,11 +510,11 @@ layout(location=3) in float aMat;
 uniform mat4 uVP;
 uniform mat4 uLightVP;
 uniform vec4 uClip;
-out vec3 vPos; out vec3 vNrm; out vec3 vCol; flat out int vMat; out vec4 vLight;
+out vec3 vPos; out vec3 vNrm; out vec3 vCol; flat out int vMat; out vec4 vLight; out float vClip;
 void main(){
   vPos = aPos; vNrm = aNrm; vCol = aCol; vMat = int(aMat + 0.5);
   vLight = uLightVP * vec4(aPos, 1.0);
-  gl_ClipDistance[0] = dot(vec4(aPos,1.0), uClip);
+  vClip = dot(vec4(aPos,1.0), uClip);
   gl_Position = uVP * vec4(aPos, 1.0);
 }
 )";
@@ -546,7 +552,7 @@ vec3 grade(vec3 c){
 )";
 
 static const char* WORLD_FS_MAIN = R"(
-in vec3 vPos; in vec3 vNrm; in vec3 vCol; flat in int vMat; in vec4 vLight;
+in vec3 vPos; in vec3 vNrm; in vec3 vCol; flat in int vMat; in vec4 vLight; in float vClip;
 uniform sampler2DShadow uShadow; uniform float uShadowTexel;
 out vec4 fragColor;
 
@@ -574,6 +580,7 @@ float windowMask(vec2 uv, float cellW, float floorH, float y0, float winW, float
   return 1.0;
 }
 void main(){
+  if(vClip < 0.0) discard;
   vec3 n = normalize(vNrm);
   if(!gl_FrontFacing) n = -n;
   vec3 base = vCol;
@@ -706,14 +713,14 @@ void main(){
 }
 )";
 
-static const char* SHADOW_VS = R"(#version 330 core
+static const char* SHADOW_VS = R"(#version 300 es\nprecision highp float;\nprecision highp int;
 layout(location=0) in vec3 aPos;
 layout(location=3) in float aMat;
 uniform mat4 uLightVP;
 out vec3 vPos; flat out int vMat;
 void main(){ vPos = aPos; vMat = int(aMat+0.5); gl_Position = uLightVP * vec4(aPos,1.0); }
 )";
-static const char* SHADOW_FS = R"(#version 330 core
+static const char* SHADOW_FS = R"(#version 300 es\nprecision highp float;\nprecision highp int;
 in vec3 vPos; flat in int vMat;
 void main(){
   if(vMat == 11){            // chain-link casts a diamond shadow
@@ -726,7 +733,7 @@ void main(){
 }
 )";
 
-static const char* SKY_VS = R"(#version 330 core
+static const char* SKY_VS = R"(#version 300 es\nprecision highp float;\nprecision highp int;
 out vec2 vNdc;
 void main(){ vec2 p = vec2((gl_VertexID<<1)&2, gl_VertexID&2); vNdc = p*2.0-1.0; gl_Position = vec4(vNdc, 0.9999, 1.0); }
 )";
@@ -747,7 +754,7 @@ void main(){
 )";
 
 // Water: river, fountain pool, puddles. aMat: 0 river, 1 pool, 2 puddle, 3 spray sheet
-static const char* WATER_VS = R"(#version 330 core
+static const char* WATER_VS = R"(#version 300 es\nprecision highp float;\nprecision highp int;
 layout(location=0) in vec3 aPos;
 layout(location=1) in vec3 aNrm;
 layout(location=2) in vec3 aCol;
@@ -813,7 +820,7 @@ void main(){
 )";
 
 // Billboard particles (premultiplied alpha: additive when a == 0)
-static const char* PART_VS = R"(#version 330 core
+static const char* PART_VS = R"(#version 300 es\nprecision highp float;\nprecision highp int;
 layout(location=0) in vec3 aPos; layout(location=1) in vec2 aUV; layout(location=2) in vec4 aCol;
 uniform mat4 uVP; out vec2 vUV; out vec4 vCol; out vec3 vPos;
 void main(){ vUV = aUV; vCol = aCol; vPos = aPos; gl_Position = uVP * vec4(aPos,1.0); }
@@ -831,12 +838,12 @@ void main(){
 )";
 
 // 2D HUD: textured (font atlas) or solid quads
-static const char* HUD_VS = R"(#version 330 core
+static const char* HUD_VS = R"(#version 300 es\nprecision highp float;\nprecision highp int;
 layout(location=0) in vec2 aPos; layout(location=1) in vec2 aUV; layout(location=2) in vec4 aCol;
 uniform vec2 uScreen; out vec2 vUV; out vec4 vCol;
 void main(){ vUV = aUV; vCol = aCol; gl_Position = vec4(aPos.x/uScreen.x*2.0-1.0, 1.0-aPos.y/uScreen.y*2.0, 0.0, 1.0); }
 )";
-static const char* HUD_FS = R"(#version 330 core
+static const char* HUD_FS = R"(#version 300 es\nprecision highp float;\nprecision highp int;
 in vec2 vUV; in vec4 vCol; uniform sampler2D uFont; out vec4 fragColor;
 void main(){
   float a = vUV.x < 0.0 ? 1.0 : texture(uFont, vUV).r;
@@ -872,7 +879,7 @@ static GLuint makeProgram(const std::string& vs, const std::string& fs) {
     gl.DeleteShader(a); gl.DeleteShader(b);
     return p;
 }
-static std::string fsWithCommon(const char* body) { return std::string("#version 330 core\n") + GLSL_COMMON + body; }
+static std::string fsWithCommon(const char* body) { return std::string("#version 300 es\nprecision highp float;\nprecision highp int;\n") + GLSL_COMMON + body; }
 
 // ----------------------------------------------------------------------------
 // Collision world: oriented boxes, ramps and quarter pipes as a 2.5D height
@@ -4397,7 +4404,14 @@ static void initRenderer() {
     gl.GenFramebuffers(1, &RD.shadowFbo);
     gl.BindFramebuffer(GL_FRAMEBUFFER, RD.shadowFbo);
     gl.FramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, RD.shadowTex, 0);
+#ifdef __EMSCRIPTEN__
+    {
+        const GLenum none = GL_NONE;
+        glDrawBuffers(1, &none);
+    }
+#else
     glDrawBuffer(GL_NONE);
+#endif
     glReadBuffer(GL_NONE);
     if (gl.CheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) fprintf(stderr, "shadow FBO incomplete\n");
     gl.BindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -4467,7 +4481,7 @@ static void drawSceneGeometry(const M4& vp, const M4& lightVP, V3 camPos, float 
     setCommon(RD.pWorld, camPos, time);
     setMat(RD.pWorld, "uVP", vp);
     setMat(RD.pWorld, "uLightVP", lightVP);
-    if (clip) { gl.Uniform4f(U_(RD.pWorld, "uClip"), 0, 1, 0, -WATER_LEVEL + 0.05f); glEnable(GL_CLIP_DISTANCE0); }
+    if (clip) gl.Uniform4f(U_(RD.pWorld, "uClip"), 0, 1, 0, -WATER_LEVEL + 0.05f);
     else gl.Uniform4f(U_(RD.pWorld, "uClip"), 0, 0, 0, 1);
     gl.ActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, RD.shadowTex);
@@ -4475,7 +4489,7 @@ static void drawSceneGeometry(const M4& vp, const M4& lightVP, V3 camPos, float 
     gl.Uniform1f(U_(RD.pWorld, "uShadowTexel"), 1.f / RD.shadowRes);
     RD.staticMesh.draw();
     RD.dynMesh.draw();
-    if (clip) glDisable(GL_CLIP_DISTANCE0);
+    (void)clip;
 }
 
 // ----------------------------------------------------------------------------
@@ -4583,9 +4597,15 @@ int main(int argc, char** argv) {
         fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
         return 1;
     }
+#ifdef __EMSCRIPTEN__
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+#else
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+#endif
 #ifdef __APPLE__
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
 #endif
@@ -4610,7 +4630,9 @@ int main(int argc, char** argv) {
     if (!win || !ctx) { fprintf(stderr, "Could not create an OpenGL 3.3 window: %s\n", SDL_GetError()); return 1; }
     if (!gl.load()) { fprintf(stderr, "Required OpenGL functions are missing.\n"); return 1; }
     SDL_GL_SetSwapInterval(shotMode ? 0 : 1);
+#ifndef __EMSCRIPTEN__
     glEnable(GL_MULTISAMPLE);
+#endif
 
     initAudio(mute);
     initRenderer();
@@ -4915,6 +4937,9 @@ int main(int argc, char** argv) {
             running = false;
         }
         SDL_GL_SwapWindow(win);
+#ifdef __EMSCRIPTEN__
+        emscripten_sleep(0);
+#endif
         frame++;
     }
     if (audioDev) SDL_CloseAudioDevice(audioDev);
