@@ -54,7 +54,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: runtime-smoke
-          path: runtime-smoke.png
+          path: runtime-smoke*.png
           if-no-files-found: ignore
 
       - name: Upload debug build

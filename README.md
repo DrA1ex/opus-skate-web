@@ -31,6 +31,8 @@ Then open http://localhost:8000.
 
 ## Controls
 
+On touch devices, the game automatically shows an on-screen D-pad on the left and trick controls on the right. The touch UI supports multi-touch, so movement and trick buttons can be held at the same time. Add `?touch=1` to force the mobile controls on for testing.
+
 - W / Up — push
 - S / Down — brake
 - A / D or Left / Right — steer, spin, balance
@@ -58,6 +60,7 @@ The browser-specific compatibility layer currently covers:
 - browser-friendly fullscreen canvas
 - WebGL-compatible clipping and framebuffer handling
 - automatic GitHub Pages deployment
+- mobile/touch controls with multi-touch D-pad and trick buttons
 - shader and WebGL runtime diagnostics
 
 The gameplay simulation still runs at the original fixed 120 Hz and the procedural world, audio, physics and controls stay in the original C++ implementation.

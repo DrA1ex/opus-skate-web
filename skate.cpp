@@ -4579,6 +4579,43 @@ static SDL_Scancode keyName(const std::string& k) {
     return SDL_SCANCODE_UNKNOWN;
 }
 
+#ifdef __EMSCRIPTEN__
+static Uint8 mobileKeys[SDL_NUM_SCANCODES] = {};
+
+extern "C" EMSCRIPTEN_KEEPALIVE void mobile_input(int action, int down) {
+    static const SDL_Scancode actions[] = {
+        SDL_SCANCODE_W,
+        SDL_SCANCODE_S,
+        SDL_SCANCODE_A,
+        SDL_SCANCODE_D,
+        SDL_SCANCODE_SPACE,
+        SDL_SCANCODE_J,
+        SDL_SCANCODE_K,
+        SDL_SCANCODE_L,
+        SDL_SCANCODE_I
+    };
+
+    if (action < 0 || action >= (int)(sizeof(actions) / sizeof(actions[0]))) return;
+
+    SDL_Scancode sc = actions[action];
+    Uint8 state = down ? 1 : 0;
+    if (mobileKeys[sc] == state) return;
+
+    mobileKeys[sc] = state;
+
+    SDL_Event e;
+    SDL_zero(e);
+    e.type = down ? SDL_KEYDOWN : SDL_KEYUP;
+    e.key.type = e.type;
+    e.key.state = down ? SDL_PRESSED : SDL_RELEASED;
+    e.key.repeat = 0;
+    e.key.keysym.scancode = sc;
+    e.key.keysym.sym = SDL_GetKeyFromScancode(sc);
+    e.key.keysym.mod = KMOD_NONE;
+    SDL_PushEvent(&e);
+}
+#endif
+
 int main(int argc, char** argv) {
     bool fullscreen = false, mute = false, hideHud = false, noHelp = false, forceTitle = false;
     int startHelpPage = -1;
@@ -4767,10 +4804,17 @@ int main(int argc, char** argv) {
 
         // ---------------------------------------------------------------- input
         const Uint8* ks = SDL_GetKeyboardState(nullptr);
+        auto keyHeld = [&](SDL_Scancode sc) {
+            if (sc == SDL_SCANCODE_UNKNOWN) return false;
+
+            bool r = ks[sc] != 0;
+#ifdef __EMSCRIPTEN__
+            r = r || mobileKeys[sc] != 0;
+#endif
+            return r;
+        };
         auto held = [&](SDL_Scancode a, SDL_Scancode b = SDL_SCANCODE_UNKNOWN, SDL_Scancode c = SDL_SCANCODE_UNKNOWN) {
-            bool r = ks[a] != 0;
-            if (b != SDL_SCANCODE_UNKNOWN) r = r || ks[b];
-            if (c != SDL_SCANCODE_UNKNOWN) r = r || ks[c];
+            bool r = keyHeld(a) || keyHeld(b) || keyHeld(c);
             for (auto& s : script) if (frame >= s.f0 && frame <= s.f1 && (s.sc == a || s.sc == b || s.sc == c)) r = true;
             return r;
         };

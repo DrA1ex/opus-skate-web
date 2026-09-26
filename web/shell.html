@@ -2,18 +2,113 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
   <title>Concrete Jungle — OpusSkate Web</title>
   <style>
+    :root {
+      --control-size: clamp(48px, 12vw, 72px);
+      --control-gap: clamp(7px, 1.7vw, 12px);
+      --control-bg: rgba(10, 13, 18, 0.42);
+      --control-border: rgba(255, 255, 255, 0.28);
+      --control-active: rgba(255, 255, 255, 0.34);
+    }
+
     * { box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; margin: 0; background: #08090b; overflow: hidden; }
-    body { display: grid; place-items: center; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-    #stage { position: relative; width: 100vw; height: 100vh; display: grid; place-items: center; }
+    html, body {
+      width: 100%; height: 100%; margin: 0; background: #08090b; overflow: hidden;
+      overscroll-behavior: none; touch-action: none;
+    }
+    body {
+      display: grid; place-items: center;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      -webkit-user-select: none; user-select: none;
+      -webkit-touch-callout: none;
+    }
+    #stage { position: relative; width: 100vw; height: 100vh; display: grid; place-items: center; overflow: hidden; }
     #canvas { display: block; outline: none; background: #000; max-width: 100vw; max-height: 100vh; }
     #status {
       position: absolute; left: 16px; bottom: 14px; color: #d8d8d8;
       background: rgba(0,0,0,.55); padding: 7px 9px; border-radius: 4px;
-      font-size: 12px; pointer-events: none; transition: opacity .25s;
+      font-size: 12px; pointer-events: none; transition: opacity .25s; z-index: 20;
+    }
+
+    #touch-controls {
+      position: absolute; inset: 0; z-index: 10; display: none;
+      pointer-events: none; touch-action: none;
+    }
+    .touch-enabled #touch-controls { display: block; }
+
+    .control-button {
+      position: absolute;
+      width: var(--control-size); height: var(--control-size);
+      border: 1px solid var(--control-border); border-radius: 50%;
+      background: var(--control-bg); color: rgba(255,255,255,.9);
+      display: grid; place-items: center;
+      font: 700 clamp(9px, 2.3vw, 13px)/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: .04em; text-shadow: 0 1px 2px #000;
+      pointer-events: auto; touch-action: none;
+      backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+      transition: transform 45ms linear, background 45ms linear, border-color 45ms linear;
+    }
+    .control-button.active {
+      transform: scale(.92); background: var(--control-active);
+      border-color: rgba(255,255,255,.72);
+    }
+
+    #dpad {
+      position: absolute;
+      left: max(14px, env(safe-area-inset-left));
+      bottom: max(14px, env(safe-area-inset-bottom));
+      width: clamp(150px, 34vw, 220px); height: clamp(150px, 34vw, 220px);
+      pointer-events: auto; touch-action: none;
+    }
+    #dpad::before {
+      content: ""; position: absolute; inset: 23%; border-radius: 50%;
+      background: rgba(0,0,0,.12); border: 1px solid rgba(255,255,255,.08);
+    }
+    #dpad .control-button { width: 34%; height: 34%; }
+    #dpad-up { left: 33%; top: 0; }
+    #dpad-down { left: 33%; bottom: 0; }
+    #dpad-left { left: 0; top: 33%; }
+    #dpad-right { right: 0; top: 33%; }
+
+    #actions {
+      position: absolute;
+      right: max(14px, env(safe-area-inset-right));
+      bottom: max(14px, env(safe-area-inset-bottom));
+      width: clamp(178px, 39vw, 250px); height: clamp(178px, 39vw, 250px);
+      pointer-events: none; touch-action: none;
+    }
+    #actions .control-button { pointer-events: auto; }
+    #action-ollie {
+      width: calc(var(--control-size) * 1.18); height: calc(var(--control-size) * 1.18);
+      left: 50%; top: 50%; transform: translate(-50%, -50%);
+      background: rgba(45, 48, 58, .54); font-size: clamp(11px, 2.7vw, 15px);
+    }
+    #action-ollie.active { transform: translate(-50%, -50%) scale(.92); }
+    #action-flip { left: 50%; top: 0; transform: translateX(-50%); }
+    #action-flip.active { transform: translateX(-50%) scale(.92); }
+    #action-manual { left: 50%; bottom: 0; transform: translateX(-50%); }
+    #action-manual.active { transform: translateX(-50%) scale(.92); }
+    #action-grind { left: 0; top: 50%; transform: translateY(-50%); }
+    #action-grind.active { transform: translateY(-50%) scale(.92); }
+    #action-grab { right: 0; top: 50%; transform: translateY(-50%); }
+    #action-grab.active { transform: translateY(-50%) scale(.92); }
+
+    #rotate-hint {
+      position: absolute; top: max(10px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
+      display: none; color: rgba(255,255,255,.65); background: rgba(0,0,0,.35);
+      border: 1px solid rgba(255,255,255,.12); border-radius: 999px; padding: 6px 10px;
+      font-size: 10px; pointer-events: none;
+    }
+    .touch-enabled #rotate-hint { display: block; }
+    @media (orientation: landscape) { #rotate-hint { display: none !important; } }
+    @media (max-height: 430px) {
+      :root { --control-size: clamp(44px, 10.5vh, 62px); --control-gap: 6px; }
+      #dpad { width: min(36vh, 190px); height: min(36vh, 190px); }
+      #actions { width: min(43vh, 220px); height: min(43vh, 220px); }
     }
   </style>
 </head>
@@ -21,17 +116,62 @@
   <div id="stage">
     <canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
     <div id="status">Loading…</div>
+
+    <div id="touch-controls" aria-hidden="true">
+      <div id="rotate-hint">LANDSCAPE RECOMMENDED</div>
+
+      <div id="dpad" aria-label="Movement controls">
+        <div class="control-button" id="dpad-up" data-dir="up">▲</div>
+        <div class="control-button" id="dpad-down" data-dir="down">▼</div>
+        <div class="control-button" id="dpad-left" data-dir="left">◀</div>
+        <div class="control-button" id="dpad-right" data-dir="right">▶</div>
+      </div>
+
+      <div id="actions" aria-label="Trick controls">
+        <div class="control-button" id="action-flip" data-action="flip">FLIP</div>
+        <div class="control-button" id="action-grind" data-action="grind">GRIND</div>
+        <div class="control-button" id="action-ollie" data-action="ollie">OLLIE</div>
+        <div class="control-button" id="action-grab" data-action="grab">GRAB</div>
+        <div class="control-button" id="action-manual" data-action="manual">MANUAL</div>
+      </div>
+    </div>
   </div>
+
   <script>
     const canvas = document.getElementById('canvas');
     const status = document.getElementById('status');
+    const touchControls = document.getElementById('touch-controls');
+    const dpad = document.getElementById('dpad');
+
+    const ACTION = Object.freeze({
+      up: 0,
+      down: 1,
+      left: 2,
+      right: 3,
+      ollie: 4,
+      flip: 5,
+      grab: 6,
+      grind: 7,
+      manual: 8
+    });
+
+    const forcedTouch = new URLSearchParams(location.search).get('touch') === '1';
+    const touchMode = forcedTouch || navigator.maxTouchPoints > 0 || matchMedia('(pointer: coarse)').matches;
+    document.documentElement.classList.toggle('touch-enabled', touchMode);
+    touchControls.setAttribute('aria-hidden', touchMode ? 'false' : 'true');
+
+    let runtimeReady = false;
+    const pressed = new Set();
+    const actionPointers = new Map();
+    let dpadPointer = null;
 
     function fitCanvas() {
       const w = canvas.width || 1280;
       const h = canvas.height || 720;
       const aspect = w / h;
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
+      const viewport = window.visualViewport;
+      const vw = viewport ? viewport.width : window.innerWidth;
+      const vh = viewport ? viewport.height : window.innerHeight;
 
       if (vw / vh > aspect) {
         canvas.style.height = vh + 'px';
@@ -42,9 +182,109 @@
       }
     }
 
+    function sendInput(name, down) {
+      if (!runtimeReady || !Module._mobile_input) return;
+
+      const action = ACTION[name];
+      if (action === undefined) return;
+      Module._mobile_input(action, down ? 1 : 0);
+    }
+
+    function setPressed(name, down) {
+      const isDown = pressed.has(name);
+      if (isDown === down) return;
+
+      if (down) pressed.add(name);
+      else pressed.delete(name);
+      sendInput(name, down);
+
+      const dir = document.querySelector(`[data-dir="${name}"]`);
+      const action = document.querySelector(`[data-action="${name}"]`);
+      (dir || action)?.classList.toggle('active', down);
+    }
+
+    function setDirections(next) {
+      for (const name of ['up', 'down', 'left', 'right']) setPressed(name, next.has(name));
+    }
+
+    function updateDpad(clientX, clientY) {
+      const rect = dpad.getBoundingClientRect();
+      const x = (clientX - (rect.left + rect.width * .5)) / (rect.width * .5);
+      const y = (clientY - (rect.top + rect.height * .5)) / (rect.height * .5);
+      const next = new Set();
+      const deadZone = .23;
+
+      if (x < -deadZone) next.add('left');
+      if (x > deadZone) next.add('right');
+      if (y < -deadZone) next.add('up');
+      if (y > deadZone) next.add('down');
+      setDirections(next);
+    }
+
+    function releaseDpad() {
+      dpadPointer = null;
+      setDirections(new Set());
+    }
+
+    function releaseAll() {
+      releaseDpad();
+      for (const name of ['ollie', 'flip', 'grab', 'grind', 'manual']) setPressed(name, false);
+      actionPointers.clear();
+    }
+
+    dpad.addEventListener('pointerdown', (event) => {
+      if (!touchMode || dpadPointer !== null) return;
+      event.preventDefault();
+      dpadPointer = event.pointerId;
+      dpad.setPointerCapture?.(event.pointerId);
+      updateDpad(event.clientX, event.clientY);
+      canvas.focus({ preventScroll: true });
+    });
+
+    dpad.addEventListener('pointermove', (event) => {
+      if (event.pointerId !== dpadPointer) return;
+      event.preventDefault();
+      updateDpad(event.clientX, event.clientY);
+    });
+
+    for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+      dpad.addEventListener(type, (event) => {
+        if (event.pointerId === dpadPointer) releaseDpad();
+      });
+    }
+
+    document.querySelectorAll('[data-action]').forEach((button) => {
+      const name = button.dataset.action;
+
+      button.addEventListener('pointerdown', (event) => {
+        if (!touchMode) return;
+        event.preventDefault();
+        button.setPointerCapture?.(event.pointerId);
+        actionPointers.set(event.pointerId, name);
+        setPressed(name, true);
+        canvas.focus({ preventScroll: true });
+      });
+
+      const release = (event) => {
+        if (actionPointers.get(event.pointerId) !== name) return;
+        actionPointers.delete(event.pointerId);
+        if (![...actionPointers.values()].includes(name)) setPressed(name, false);
+      };
+
+      button.addEventListener('pointerup', release);
+      button.addEventListener('pointercancel', release);
+      button.addEventListener('lostpointercapture', release);
+    });
+
     window.addEventListener('resize', fitCanvas);
+    window.visualViewport?.addEventListener('resize', fitCanvas);
+    window.addEventListener('blur', releaseAll);
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) releaseAll();
+    });
+
     window.addEventListener('keydown', (event) => {
-      if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(event.code)) {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(event.code)) {
         event.preventDefault();
       }
       canvas.focus({ preventScroll: true });
@@ -61,6 +301,8 @@
         status.style.opacity = text ? '1' : '0';
       },
       onRuntimeInitialized: () => {
+        runtimeReady = true;
+        for (const name of pressed) sendInput(name, true);
         fitCanvas();
         canvas.focus({ preventScroll: true });
         status.style.opacity = '0';
