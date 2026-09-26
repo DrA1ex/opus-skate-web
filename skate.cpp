@@ -270,8 +270,9 @@ inline M4 mInverse(const M4& mat) {
 // Small deterministic RNG + hashes (so the city looks the same every run)
 struct Rng {
     uint32_t s;
+    uint64_t draws = 0;      // instrumentation for deterministic replay/tests
     explicit Rng(uint32_t seed = 1234567u) : s(seed ? seed : 1u) {}
-    uint32_t next() { s ^= s << 13; s ^= s >> 17; s ^= s << 5; return s; }
+    uint32_t next() { draws++; s ^= s << 13; s ^= s >> 17; s ^= s << 5; return s; }
     float f() { return (next() & 0xFFFFFF) / 16777216.f; }
     float range(float a, float b) { return a + (b - a) * f(); }
     int irange(int a, int b) { return a + (int)(next() % (uint32_t)(b - a + 1)); }
@@ -2460,6 +2461,9 @@ static V3 SPAWN_POS(3.0f, 0.0f, 22.0f);
 static float SPAWN_YAW = PI;
 
 static void buildLevel() {
+    // Level-local state must restart with the level for deterministic rebuilds.
+    // Adapted from adeism/OSkate arena/01a0cbce-oskate.
+    shopIdx = 0;
     buildStreets();
     buildNW();
     buildPlaza();
@@ -3668,8 +3672,12 @@ static void initNpcs() {
 static const char* CHEERS[] = {"NICE!", "SICK!", "WHOA!", "YO! DO THAT AGAIN!", "THAT WAS DOPE!", "RESPECT!"};
 static const char* ANGRY[] = {"HEY! I'M WALKIN' HERE!", "WATCH IT, KID!", "GET OFF THE SIDEWALK!", "OW! MY COFFEE!"};
 
+// Cosmetic RNG streams live at file scope so replay/tests can rewind the whole world.
+// Adapted from adeism/OSkate arena/01a0cbce-oskate.
+static Rng npcRng(4242);
+
 static void updateNpcs(float dt, Player& pl, long long& lastBankSeen) {
-    static Rng r(4242);
+    Rng& r = npcRng;
     bool cheerEvent = false;
     if (pl.score != lastBankSeen) { cheerEvent = pl.score - lastBankSeen >= 800; lastBankSeen = pl.score; }
     if (cheerEvent) {   // the closest onlooker always reacts to a big line
@@ -3790,8 +3798,10 @@ static void initPigeons() {
             pigeons.push_back(p);
         }
 }
+static Rng pigeonRng(99);   // cosmetic-only; kept rewindable for deterministic replay
+
 static void updatePigeons(float dt, const Player& pl) {
-    static Rng r(99);
+    Rng& r = pigeonRng;
     bool flock = false;
     for (auto& p : pigeons) {
         p.t += dt;
