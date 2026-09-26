@@ -1,0 +1,28 @@
+name: Build web
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: latest
+
+      - name: Build
+        run: bash build-web.sh
+
+      - name: Upload browser build
+        uses: actions/upload-artifact@v4
+        with:
+          name: opus-skate-web
+          path: dist/
