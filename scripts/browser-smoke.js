@@ -97,20 +97,24 @@ async function dispatchPointer(page, selector, type, init) {
     const menu = document.querySelector('#mobile-title-menu');
     const dpad = document.querySelector('#dpad');
     const actions = document.querySelector('#actions');
+    const freeSkate = document.querySelector('[data-menu-action="9"]');
     return {
       menuVisible: menu && getComputedStyle(menu).display !== 'none',
       dpadHidden: dpad && getComputedStyle(dpad).display === 'none',
       actionsHidden: actions && getComputedStyle(actions).display === 'none',
-      setter: typeof Module._web_set_mobile === 'function'
+      setter: typeof Module._web_set_mobile === 'function',
+      freeSkatePresent: !!freeSkate,
+      freeSkateEnabled: !!freeSkate && !freeSkate.disabled
     };
   });
   console.log('mobile title state:', JSON.stringify(mobileTitleState));
   if (!mobileTitleState.menuVisible || !mobileTitleState.dpadHidden ||
-      !mobileTitleState.actionsHidden || !mobileTitleState.setter) {
+      !mobileTitleState.actionsHidden || !mobileTitleState.setter ||
+      !mobileTitleState.freeSkatePresent || !mobileTitleState.freeSkateEnabled) {
     throw new Error('Mobile title menu did not initialize correctly');
   }
 
-  await mobile.dispatchEvent('[data-menu-action="9"]', 'pointerdown', {
+  await dispatchPointer(mobile, '[data-menu-action="9"]', 'pointerdown', {
     pointerId: 7, pointerType: 'touch', isPrimary: true
   });
   await mobile.waitForTimeout(250);
