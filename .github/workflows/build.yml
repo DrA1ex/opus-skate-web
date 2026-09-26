@@ -4,17 +4,15 @@ on:
   push:
     branches: [ main ]
   pull_request:
+    types: [ opened, reopened, synchronize, closed ]
   workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: pages-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   build:
+    if: github.event_name != 'pull_request' || github.event.action != 'closed'
     runs-on: ubuntu-latest
 
     steps:
@@ -57,32 +55,103 @@ jobs:
           path: runtime-smoke*.png
           if-no-files-found: ignore
 
-      - name: Upload debug build
+      - name: Upload web build
         uses: actions/upload-artifact@v4
         with:
           name: opus-skate-web
           path: dist/
 
-      - name: Upload Pages artifact
-        if: github.event_name != 'pull_request'
-        uses: actions/upload-pages-artifact@v4
-        with:
-          path: dist/
-
-  deploy:
+  deploy-main:
     if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
 
     permissions:
-      pages: write
-      id-token: write
+      actions: read
+      contents: write
 
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages-publish
+      cancel-in-progress: false
 
     steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download web build
+        uses: actions/download-artifact@v5
+        with:
+          name: opus-skate-web
+          path: dist
+
+      - name: Deploy main site
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: gh-pages
+          folder: dist
+          clean: true
+          clean-exclude: |
+            pr-preview
+          force: false
+
+  deploy-preview:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.action != 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    needs: build
+    runs-on: ubuntu-latest
+
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+
+    concurrency:
+      group: pages-publish
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download web build
+        uses: actions/download-artifact@v5
+        with:
+          name: opus-skate-web
+          path: dist
+
+      - name: Deploy PR preview
+        uses: rossjrw/pr-preview-action@v1
+        with:
+          source-dir: dist
+          preview-branch: gh-pages
+          umbrella-dir: pr-preview
+          qr-code: false
+
+  remove-preview:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.action == 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: write
+
+    concurrency:
+      group: pages-publish
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Remove PR preview
+        uses: rossjrw/pr-preview-action@v1
+        with:
+          preview-branch: gh-pages
+          umbrella-dir: pr-preview
+          action: remove
+          qr-code: false
