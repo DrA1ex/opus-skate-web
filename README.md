@@ -31,7 +31,7 @@ Then open http://localhost:8000.
 
 ## Controls
 
-On touch devices, the game automatically shows an on-screen D-pad on the left and trick controls on the right. The touch UI supports multi-touch, so movement and trick buttons can be held at the same time. Add `?touch=1` to force the mobile controls on for testing.
+On touch devices, the game automatically shows an on-screen D-pad on the left and trick controls on the right. The touch UI supports multi-touch, so movement and trick buttons can be held at the same time. Add `?touch=1` to force the mobile controls on for testing. Orientation changes are handled live without reloading the page.
 
 - W / Up — push
 - S / Down — brake
