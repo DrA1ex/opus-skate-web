@@ -1,0 +1,39 @@
+name: Headless gameplay tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  harness:
+    name: Harness (${{ matrix.os }})
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run headless suite
+        run: bash tools/harness/check.sh --junit harness.xml
+      - name: Upload JUnit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-${{ matrix.os }}
+          path: harness.xml
+          if-no-files-found: ignore
+
+  sanitizers:
+    name: Sanitizers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: ASan + UBSan
+        run: bash tools/harness/check.sh --asan --no-bench
+      - name: ThreadSanitizer audio snapshot
+        run: bash tools/harness/check.sh --tsan --no-bench
