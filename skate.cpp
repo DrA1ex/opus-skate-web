@@ -502,7 +502,11 @@ struct GpuMesh {
 // ----------------------------------------------------------------------------
 // Shaders (GLSL 3.30 core). All surface detail is procedural.
 // ----------------------------------------------------------------------------
-static const char* WORLD_VS = R"(#version 300 es\nprecision highp float;\nprecision highp int;
+static const char* WORLD_VS = R"(#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+precision highp sampler2DShadow;
 layout(location=0) in vec3 aPos;
 layout(location=1) in vec3 aNrm;
 layout(location=2) in vec3 aCol;
@@ -633,8 +637,8 @@ void main(){
     float nz = fbm(vPos.xz * 0.9);
     base *= 0.78 + 0.35*nz;
     base *= 0.93 + 0.14*vnoise(vPos.xz*9.0);
-    float patch = smoothstep(0.62, 0.66, fbm(vPos.xz*0.12 + 4.0));
-    base = mix(base, base*0.72, patch);
+    float asphaltPatch = smoothstep(0.62, 0.66, fbm(vPos.xz*0.12 + 4.0));
+    base = mix(base, base*0.72, asphaltPatch);
     float crack = smoothstep(0.006, 0.0, abs(fbm(vPos.xz*0.5+11.0) - 0.5)) * step(0.62, vnoise(vPos.xz*0.3));
     base *= 1.0 - crack*0.25;
   } else if(m == 6){                                        // sidewalk slabs
@@ -713,14 +717,22 @@ void main(){
 }
 )";
 
-static const char* SHADOW_VS = R"(#version 300 es\nprecision highp float;\nprecision highp int;
+static const char* SHADOW_VS = R"(#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+precision highp sampler2DShadow;
 layout(location=0) in vec3 aPos;
 layout(location=3) in float aMat;
 uniform mat4 uLightVP;
 out vec3 vPos; flat out int vMat;
 void main(){ vPos = aPos; vMat = int(aMat+0.5); gl_Position = uLightVP * vec4(aPos,1.0); }
 )";
-static const char* SHADOW_FS = R"(#version 300 es\nprecision highp float;\nprecision highp int;
+static const char* SHADOW_FS = R"(#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+precision highp sampler2DShadow;
 in vec3 vPos; flat in int vMat;
 void main(){
   if(vMat == 11){            // chain-link casts a diamond shadow
@@ -733,7 +745,11 @@ void main(){
 }
 )";
 
-static const char* SKY_VS = R"(#version 300 es\nprecision highp float;\nprecision highp int;
+static const char* SKY_VS = R"(#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+precision highp sampler2DShadow;
 out vec2 vNdc;
 void main(){ vec2 p = vec2((gl_VertexID<<1)&2, gl_VertexID&2); vNdc = p*2.0-1.0; gl_Position = vec4(vNdc, 0.9999, 1.0); }
 )";
@@ -754,7 +770,11 @@ void main(){
 )";
 
 // Water: river, fountain pool, puddles. aMat: 0 river, 1 pool, 2 puddle, 3 spray sheet
-static const char* WATER_VS = R"(#version 300 es\nprecision highp float;\nprecision highp int;
+static const char* WATER_VS = R"(#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+precision highp sampler2DShadow;
 layout(location=0) in vec3 aPos;
 layout(location=1) in vec3 aNrm;
 layout(location=2) in vec3 aCol;
@@ -820,7 +840,11 @@ void main(){
 )";
 
 // Billboard particles (premultiplied alpha: additive when a == 0)
-static const char* PART_VS = R"(#version 300 es\nprecision highp float;\nprecision highp int;
+static const char* PART_VS = R"(#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+precision highp sampler2DShadow;
 layout(location=0) in vec3 aPos; layout(location=1) in vec2 aUV; layout(location=2) in vec4 aCol;
 uniform mat4 uVP; out vec2 vUV; out vec4 vCol; out vec3 vPos;
 void main(){ vUV = aUV; vCol = aCol; vPos = aPos; gl_Position = uVP * vec4(aPos,1.0); }
@@ -838,12 +862,20 @@ void main(){
 )";
 
 // 2D HUD: textured (font atlas) or solid quads
-static const char* HUD_VS = R"(#version 300 es\nprecision highp float;\nprecision highp int;
+static const char* HUD_VS = R"(#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+precision highp sampler2DShadow;
 layout(location=0) in vec2 aPos; layout(location=1) in vec2 aUV; layout(location=2) in vec4 aCol;
 uniform vec2 uScreen; out vec2 vUV; out vec4 vCol;
 void main(){ vUV = aUV; vCol = aCol; gl_Position = vec4(aPos.x/uScreen.x*2.0-1.0, 1.0-aPos.y/uScreen.y*2.0, 0.0, 1.0); }
 )";
-static const char* HUD_FS = R"(#version 300 es\nprecision highp float;\nprecision highp int;
+static const char* HUD_FS = R"(#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+precision highp sampler2DShadow;
 in vec2 vUV; in vec4 vCol; uniform sampler2D uFont; out vec4 fragColor;
 void main(){
   float a = vUV.x < 0.0 ? 1.0 : texture(uFont, vUV).r;
@@ -881,7 +913,7 @@ static GLuint makeProgram(const char* name, const std::string& vs, const std::st
     gl.DeleteShader(a); gl.DeleteShader(b);
     return p;
 }
-static std::string fsWithCommon(const char* body) { return std::string("#version 300 es\nprecision highp float;\nprecision highp int;\n") + GLSL_COMMON + body; }
+static std::string fsWithCommon(const char* body) { return std::string("#version 300 es\nprecision highp float;\nprecision highp int;\nprecision highp sampler2D;\nprecision highp sampler2DShadow;\n") + GLSL_COMMON + body; }
 
 // ----------------------------------------------------------------------------
 // Collision world: oriented boxes, ramps and quarter pipes as a 2.5D height
