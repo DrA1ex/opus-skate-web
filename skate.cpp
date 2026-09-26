@@ -852,7 +852,7 @@ void main(){
 }
 )";
 
-static GLuint compileShader(GLenum type, const std::string& src) {
+static GLuint compileShader(const char* name, GLenum type, const std::string& src) {
     GLuint s = gl.CreateShader(type);
     const char* p = src.c_str();
     gl.ShaderSource(s, 1, &p, nullptr);
@@ -861,20 +861,22 @@ static GLuint compileShader(GLenum type, const std::string& src) {
     gl.GetShaderiv(s, GL_COMPILE_STATUS, &ok);
     if (!ok) {
         char log[4096]; gl.GetShaderInfoLog(s, sizeof(log), nullptr, log);
-        fprintf(stderr, "Shader compile error:\n%s\n", log);
+        fprintf(stderr, "%s %s shader compile error:\n%s\n", name,
+                type == GL_VERTEX_SHADER ? "vertex" : "fragment", log);
     }
     return s;
 }
-static GLuint makeProgram(const std::string& vs, const std::string& fs) {
+static GLuint makeProgram(const char* name, const std::string& vs, const std::string& fs) {
     GLuint p = gl.CreateProgram();
-    GLuint a = compileShader(GL_VERTEX_SHADER, vs), b = compileShader(GL_FRAGMENT_SHADER, fs);
+    GLuint a = compileShader(name, GL_VERTEX_SHADER, vs);
+    GLuint b = compileShader(name, GL_FRAGMENT_SHADER, fs);
     gl.AttachShader(p, a); gl.AttachShader(p, b);
     gl.LinkProgram(p);
     GLint ok = 0;
     gl.GetProgramiv(p, GL_LINK_STATUS, &ok);
     if (!ok) {
         char log[4096]; gl.GetProgramInfoLog(p, sizeof(log), nullptr, log);
-        fprintf(stderr, "Program link error:\n%s\n", log);
+        fprintf(stderr, "%s program link error:\n%s\n", name, log);
     }
     gl.DeleteShader(a); gl.DeleteShader(b);
     return p;
@@ -4391,12 +4393,12 @@ static void resizeReflection(int w, int h) {
 }
 
 static void initRenderer() {
-    RD.pWorld = makeProgram(WORLD_VS, fsWithCommon(WORLD_FS_MAIN));
-    RD.pShadow = makeProgram(SHADOW_VS, SHADOW_FS);
-    RD.pSky = makeProgram(SKY_VS, fsWithCommon(SKY_FS_MAIN));
-    RD.pWater = makeProgram(WATER_VS, fsWithCommon(WATER_FS_MAIN));
-    RD.pPart = makeProgram(PART_VS, fsWithCommon(PART_FS_MAIN));
-    RD.pHud = makeProgram(HUD_VS, HUD_FS);
+    RD.pWorld = makeProgram("world", WORLD_VS, fsWithCommon(WORLD_FS_MAIN));
+    RD.pShadow = makeProgram("shadow", SHADOW_VS, SHADOW_FS);
+    RD.pSky = makeProgram("sky", SKY_VS, fsWithCommon(SKY_FS_MAIN));
+    RD.pWater = makeProgram("water", WATER_VS, fsWithCommon(WATER_FS_MAIN));
+    RD.pPart = makeProgram("particles", PART_VS, fsWithCommon(PART_FS_MAIN));
+    RD.pHud = makeProgram("hud", HUD_VS, HUD_FS);
     // shadow map
     RD.shadowTex = makeTex(RD.shadowRes, RD.shadowRes, GL_DEPTH_COMPONENT24, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, GL_LINEAR, nullptr);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
@@ -4636,6 +4638,13 @@ int main(int argc, char** argv) {
 
     initAudio(mute);
     initRenderer();
+#ifdef __EMSCRIPTEN__
+    {
+        GLenum err;
+        while ((err = glGetError()) != GL_NO_ERROR)
+            fprintf(stderr, "WebGL error after renderer init: 0x%04x\n", (unsigned)err);
+    }
+#endif
     buildLevel();
     RD.staticMesh.upload(SM, false);
     RD.waterMesh.upload(WM, false);
@@ -4872,6 +4881,12 @@ int main(int argc, char** argv) {
             gl.FramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, RD.mainDepth, 0);
         }
         gl.BindFramebuffer(GL_FRAMEBUFFER, RD.mainFbo);
+#ifdef __EMSCRIPTEN__
+        if (!RD.mainFbo) {
+            const GLenum back = GL_BACK;
+            glDrawBuffers(1, &back);
+        }
+#endif
         glViewport(0, 0, W, H);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         drawSceneGeometry(vp, lightVP, cam.pos, time, false);
