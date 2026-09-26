@@ -169,11 +169,29 @@
 
     function viewportRect() {
       const viewport = window.visualViewport;
+      const innerWidthNow = Math.max(1, window.innerWidth);
+      const innerHeightNow = Math.max(1, window.innerHeight);
+
+      if (!viewport) {
+        return { left: 0, top: 0, width: innerWidthNow, height: innerHeightNow };
+      }
+
+      const innerLandscape = innerWidthNow >= innerHeightNow;
+      const visualLandscape = viewport.width >= viewport.height;
+      const visualIsCurrent = innerLandscape === visualLandscape;
+
+      // iOS Safari can leave visualViewport on the previous orientation for a
+      // short time after rotation. In that window, innerWidth/innerHeight are
+      // already correct, so prefer them instead of keeping the stale layout.
+      if (!visualIsCurrent) {
+        return { left: 0, top: 0, width: innerWidthNow, height: innerHeightNow };
+      }
+
       return {
-        left: Math.round(viewport ? viewport.offsetLeft : 0),
-        top: Math.round(viewport ? viewport.offsetTop : 0),
-        width: Math.max(1, Math.round(viewport ? viewport.width : window.innerWidth)),
-        height: Math.max(1, Math.round(viewport ? viewport.height : window.innerHeight))
+        left: Math.round(viewport.offsetLeft),
+        top: Math.round(viewport.offsetTop),
+        width: Math.max(1, Math.round(viewport.width)),
+        height: Math.max(1, Math.round(viewport.height))
       };
     }
 
