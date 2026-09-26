@@ -35,6 +35,28 @@ jobs:
           test -s dist/index.js
           test -s dist/index.wasm
 
+      - name: Set up browser smoke test
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --silent playwright
+          npx playwright install --with-deps chromium
+
+      - name: Browser smoke test
+        run: |
+          python3 -m http.server 8000 -d dist > /tmp/opus-skate-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID || true' EXIT
+          sleep 1
+          node scripts/browser-smoke.js
+
+      - name: Upload runtime screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-smoke
+          path: runtime-smoke.png
+          if-no-files-found: ignore
+
       - name: Upload debug build
         uses: actions/upload-artifact@v4
         with:
