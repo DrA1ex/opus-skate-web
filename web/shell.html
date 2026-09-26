@@ -8,8 +8,9 @@
   <title>Concrete Jungle — OpusSkate Web</title>
   <style>
     :root {
-      --control-size: clamp(42px, 12vmin, 64px);
-      --control-gap: clamp(6px, 1.8vmin, 10px);
+      --control-size: 56px;
+      --pad-size: 172px;
+      --action-size: 172px;
       --control-bg: rgba(10, 13, 18, 0.42);
       --control-border: rgba(255, 255, 255, 0.28);
       --control-active: rgba(255, 255, 255, 0.34);
@@ -21,26 +22,24 @@
       overscroll-behavior: none; touch-action: none;
     }
     body {
-      display: grid; place-items: center;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       -webkit-user-select: none; user-select: none;
       -webkit-touch-callout: none;
     }
+
     #stage {
-      position: fixed; left: 0; top: 0;
-      width: 100vw; height: 100vh;
-      overflow: hidden;
-      transform-origin: 0 0;
+      position: fixed; left: 0; top: 0; width: 100vw; height: 100vh;
+      overflow: hidden; background: #000;
     }
     #canvas {
-      position: absolute; inset: 0;
-      display: block; outline: none; background: #000;
-      width: 100%; height: 100%;
+      position: absolute; inset: 0; display: block; width: 100%; height: 100%;
+      max-width: none; max-height: none; outline: none; background: #000;
     }
     #status {
-      position: absolute; left: 16px; bottom: 14px; color: #d8d8d8;
-      background: rgba(0,0,0,.55); padding: 7px 9px; border-radius: 4px;
-      font-size: 12px; pointer-events: none; transition: opacity .25s; z-index: 20;
+      position: absolute; left: 16px; bottom: 14px; z-index: 20;
+      color: #d8d8d8; background: rgba(0,0,0,.55); padding: 7px 9px;
+      border-radius: 4px; font-size: 12px; pointer-events: none;
+      transition: opacity .25s;
     }
 
     #touch-controls {
@@ -50,51 +49,50 @@
     .touch-enabled #touch-controls { display: block; }
 
     .control-button {
-      position: absolute;
-      width: var(--control-size); height: var(--control-size);
+      position: absolute; width: var(--control-size); height: var(--control-size);
       border: 1px solid var(--control-border); border-radius: 50%;
       background: var(--control-bg); color: rgba(255,255,255,.9);
       display: grid; place-items: center;
-      font: 700 clamp(9px, 2.3vw, 13px)/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      font: 700 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
       letter-spacing: .04em; text-shadow: 0 1px 2px #000;
       pointer-events: auto; touch-action: none;
       backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
       transition: transform 45ms linear, background 45ms linear, border-color 45ms linear;
     }
     .control-button.active {
-      transform: scale(.92); background: var(--control-active);
-      border-color: rgba(255,255,255,.72);
+      background: var(--control-active); border-color: rgba(255,255,255,.72);
     }
 
     #dpad {
       position: absolute;
-      left: max(14px, env(safe-area-inset-left));
-      bottom: max(14px, env(safe-area-inset-bottom));
-      width: clamp(132px, 34vmin, 180px); height: clamp(132px, 34vmin, 180px);
+      left: max(10px, env(safe-area-inset-left));
+      bottom: max(10px, env(safe-area-inset-bottom));
+      width: var(--pad-size); height: var(--pad-size);
       pointer-events: auto; touch-action: none;
     }
     #dpad::before {
-      content: ""; position: absolute; inset: 23%; border-radius: 50%;
-      background: rgba(0,0,0,.12); border: 1px solid rgba(255,255,255,.08);
+      content: ""; position: absolute; inset: 24%; border-radius: 50%;
+      background: rgba(0,0,0,.13); border: 1px solid rgba(255,255,255,.08);
     }
-    #dpad .control-button { width: 34%; height: 34%; }
-    #dpad-up { left: 33%; top: 0; }
-    #dpad-down { left: 33%; bottom: 0; }
-    #dpad-left { left: 0; top: 33%; }
-    #dpad-right { right: 0; top: 33%; }
+    #dpad-up { left: 50%; top: 0; transform: translateX(-50%); }
+    #dpad-down { left: 50%; bottom: 0; transform: translateX(-50%); }
+    #dpad-left { left: 0; top: 50%; transform: translateY(-50%); }
+    #dpad-right { right: 0; top: 50%; transform: translateY(-50%); }
+    #dpad-up.active, #dpad-down.active { transform: translateX(-50%) scale(.92); }
+    #dpad-left.active, #dpad-right.active { transform: translateY(-50%) scale(.92); }
 
     #actions {
       position: absolute;
-      right: max(14px, env(safe-area-inset-right));
-      bottom: max(14px, env(safe-area-inset-bottom));
-      width: clamp(156px, 40vmin, 210px); height: clamp(156px, 40vmin, 210px);
+      right: max(10px, env(safe-area-inset-right));
+      bottom: max(10px, env(safe-area-inset-bottom));
+      width: var(--action-size); height: var(--action-size);
       pointer-events: none; touch-action: none;
     }
     #actions .control-button { pointer-events: auto; }
     #action-ollie {
-      width: calc(var(--control-size) * 1.18); height: calc(var(--control-size) * 1.18);
+      width: calc(var(--control-size) * 1.14); height: calc(var(--control-size) * 1.14);
       left: 50%; top: 50%; transform: translate(-50%, -50%);
-      background: rgba(45, 48, 58, .54); font-size: clamp(11px, 2.7vw, 15px);
+      background: rgba(45, 48, 58, .56); font-size: 13px;
     }
     #action-ollie.active { transform: translate(-50%, -50%) scale(.92); }
     #action-flip { left: 50%; top: 0; transform: translateX(-50%); }
@@ -106,19 +104,8 @@
     #action-grab { right: 0; top: 50%; transform: translateY(-50%); }
     #action-grab.active { transform: translateY(-50%) scale(.92); }
 
-    #rotate-hint {
-      position: absolute; top: max(10px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
-      display: none; color: rgba(255,255,255,.65); background: rgba(0,0,0,.35);
-      border: 1px solid rgba(255,255,255,.12); border-radius: 999px; padding: 6px 10px;
-      font-size: 10px; pointer-events: none;
-    }
-    .touch-enabled #rotate-hint { display: block; }
-    @media (orientation: landscape) { #rotate-hint { display: none !important; } }
-    @media (orientation: landscape) and (max-height: 500px) {
-      :root { --control-size: clamp(40px, 12vmin, 58px); }
-      #dpad { width: clamp(128px, 36vmin, 166px); height: clamp(128px, 36vmin, 166px); }
-      #actions { width: clamp(150px, 42vmin, 194px); height: clamp(150px, 42vmin, 194px); }
-    }
+    .compact-controls .control-button { font-size: 10px; }
+    .compact-controls #action-ollie { font-size: 11px; }
   </style>
 </head>
 <body>
@@ -127,8 +114,6 @@
     <div id="status">Loading…</div>
 
     <div id="touch-controls" aria-hidden="true">
-      <div id="rotate-hint">LANDSCAPE RECOMMENDED</div>
-
       <div id="dpad" aria-label="Movement controls">
         <div class="control-button" id="dpad-up" data-dir="up">▲</div>
         <div class="control-button" id="dpad-down" data-dir="down">▼</div>
@@ -147,6 +132,7 @@
   </div>
 
   <script>
+    const stage = document.getElementById('stage');
     const canvas = document.getElementById('canvas');
     const status = document.getElementById('status');
     const touchControls = document.getElementById('touch-controls');
@@ -170,43 +156,58 @@
     touchControls.setAttribute('aria-hidden', touchMode ? 'false' : 'true');
 
     let runtimeReady = false;
+    let lastGameWidth = 0;
+    let lastGameHeight = 0;
+    let resizeTimer = 0;
     const pressed = new Set();
     const actionPointers = new Map();
     let dpadPointer = null;
 
-    let resizeFrame = 0;
-
-    function fitCanvas() {
-      const viewport = window.visualViewport;
-      const width = Math.max(1, Math.round(viewport ? viewport.width : window.innerWidth));
-      const height = Math.max(1, Math.round(viewport ? viewport.height : window.innerHeight));
-      const offsetLeft = viewport ? viewport.offsetLeft : 0;
-      const offsetTop = viewport ? viewport.offsetTop : 0;
-
-      // iOS Safari's layout viewport can remain larger than the actually visible area
-      // while its toolbars are shown. Keep the entire game and controls inside the
-      // visual viewport rather than 100vh.
-      const stage = document.getElementById('stage');
-      stage.style.width = width + 'px';
-      stage.style.height = height + 'px';
-      stage.style.transform = `translate(${Math.round(offsetLeft)}px, ${Math.round(offsetTop)}px)`;
-
-      // Render at device resolution, but cap DPR to keep phones from rendering the
-      // whole procedural city at 3x/4x native resolution.
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const pixelWidth = Math.max(1, Math.round(width * dpr));
-      const pixelHeight = Math.max(1, Math.round(height * dpr));
-
-      if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
-      if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
     }
 
-    function scheduleResize() {
-      cancelAnimationFrame(resizeFrame);
-      resizeFrame = requestAnimationFrame(() => {
-        fitCanvas();
-        releaseAll();
-      });
+    function viewportRect() {
+      const viewport = window.visualViewport;
+      return {
+        left: Math.round(viewport ? viewport.offsetLeft : 0),
+        top: Math.round(viewport ? viewport.offsetTop : 0),
+        width: Math.max(1, Math.round(viewport ? viewport.width : window.innerWidth)),
+        height: Math.max(1, Math.round(viewport ? viewport.height : window.innerHeight))
+      };
+    }
+
+    function syncViewport() {
+      const rect = viewportRect();
+      const shortSide = Math.min(rect.width, rect.height);
+      const controlSize = Math.round(clamp(shortSide * .145, 42, 64));
+      const clusterSize = Math.round(controlSize * 3.05);
+
+      stage.style.left = rect.left + 'px';
+      stage.style.top = rect.top + 'px';
+      stage.style.width = rect.width + 'px';
+      stage.style.height = rect.height + 'px';
+      stage.style.setProperty('--control-size', controlSize + 'px');
+      stage.style.setProperty('--pad-size', clusterSize + 'px');
+      stage.style.setProperty('--action-size', clusterSize + 'px');
+      stage.classList.toggle('compact-controls', shortSide < 330);
+
+      canvas.style.width = '100%';
+      canvas.style.height = '100%';
+
+      if (runtimeReady && Module._web_resize &&
+          (rect.width !== lastGameWidth || rect.height !== lastGameHeight)) {
+        lastGameWidth = rect.width;
+        lastGameHeight = rect.height;
+        Module._web_resize(rect.width, rect.height);
+      }
+    }
+
+    function queueViewportSync() {
+      syncViewport();
+      requestAnimationFrame(syncViewport);
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(syncViewport, 180);
     }
 
     function sendInput(name, down) {
@@ -263,7 +264,7 @@
       if (!touchMode || dpadPointer !== null) return;
       event.preventDefault();
       dpadPointer = event.pointerId;
-      dpad.setPointerCapture?.(event.pointerId);
+      try { dpad.setPointerCapture?.(event.pointerId); } catch {}
       updateDpad(event.clientX, event.clientY);
       canvas.focus({ preventScroll: true });
     });
@@ -286,7 +287,7 @@
       button.addEventListener('pointerdown', (event) => {
         if (!touchMode) return;
         event.preventDefault();
-        button.setPointerCapture?.(event.pointerId);
+        try { button.setPointerCapture?.(event.pointerId); } catch {}
         actionPointers.set(event.pointerId, name);
         setPressed(name, true);
         canvas.focus({ preventScroll: true });
@@ -303,17 +304,19 @@
       button.addEventListener('lostpointercapture', release);
     });
 
-    window.addEventListener('resize', scheduleResize);
-    window.visualViewport?.addEventListener('resize', scheduleResize);
-    window.visualViewport?.addEventListener('scroll', scheduleResize);
+    window.addEventListener('resize', queueViewportSync);
     window.addEventListener('orientationchange', () => {
-      scheduleResize();
-
-      // Safari reports intermediate viewport metrics while rotating. Re-read them
-      // after the browser chrome and safe areas have settled.
-      setTimeout(scheduleResize, 80);
-      setTimeout(scheduleResize, 280);
+      releaseAll();
+      queueViewportSync();
+      setTimeout(queueViewportSync, 350);
     });
+    window.visualViewport?.addEventListener('resize', queueViewportSync);
+    window.visualViewport?.addEventListener('scroll', queueViewportSync);
+    window.screen?.orientation?.addEventListener?.('change', () => {
+      releaseAll();
+      queueViewportSync();
+    });
+
     window.addEventListener('blur', releaseAll);
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) releaseAll();
@@ -339,13 +342,13 @@
       onRuntimeInitialized: () => {
         runtimeReady = true;
         for (const name of pressed) sendInput(name, true);
-        fitCanvas();
+        queueViewportSync();
         canvas.focus({ preventScroll: true });
         status.style.opacity = '0';
       }
     };
 
-    fitCanvas();
+    queueViewportSync();
   </script>
   {{{ SCRIPT }}}
 </body>

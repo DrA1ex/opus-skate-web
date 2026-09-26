@@ -4581,6 +4581,7 @@ static SDL_Scancode keyName(const std::string& k) {
 
 #ifdef __EMSCRIPTEN__
 static Uint8 mobileKeys[SDL_NUM_SCANCODES] = {};
+static SDL_Window* webWindow = nullptr;
 
 extern "C" EMSCRIPTEN_KEEPALIVE void mobile_input(int action, int down) {
     static const SDL_Scancode actions[] = {
@@ -4613,6 +4614,11 @@ extern "C" EMSCRIPTEN_KEEPALIVE void mobile_input(int action, int down) {
     e.key.keysym.sym = SDL_GetKeyFromScancode(sc);
     e.key.keysym.mod = KMOD_NONE;
     SDL_PushEvent(&e);
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE void web_resize(int width, int height) {
+    if (!webWindow || width < 1 || height < 1) return;
+    SDL_SetWindowSize(webWindow, width, height);
 }
 #endif
 
@@ -4699,6 +4705,9 @@ int main(int argc, char** argv) {
         if (!ctx) { SDL_DestroyWindow(win); win = nullptr; }
     }
     if (!win || !ctx) { fprintf(stderr, "Could not create an OpenGL 3.3 window: %s\n", SDL_GetError()); return 1; }
+#ifdef __EMSCRIPTEN__
+    webWindow = win;
+#endif
     if (!gl.load()) { fprintf(stderr, "Required OpenGL functions are missing.\n"); return 1; }
 #ifndef __EMSCRIPTEN__
     SDL_GL_SetSwapInterval(shotMode ? 0 : 1);
