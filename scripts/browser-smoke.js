@@ -110,12 +110,26 @@ async function inspectPage(page, label) {
   const ollie = mobile.locator('[data-action="ollie"]');
   const ollieBox = await ollie.boundingBox();
   if (!ollieBox) throw new Error('OLLIE button has no layout box');
-  await mobile.touchscreen.tap(ollieBox.x + ollieBox.width / 2, ollieBox.y + ollieBox.height / 2);
+  const ollieX = ollieBox.x + ollieBox.width / 2;
+  const ollieY = ollieBox.y + ollieBox.height / 2;
+  await mobile.dispatchEvent('[data-action="ollie"]', 'pointerdown', {
+    pointerId: 11, pointerType: 'touch', clientX: ollieX, clientY: ollieY, isPrimary: false
+  });
+  await mobile.dispatchEvent('[data-action="ollie"]', 'pointerup', {
+    pointerId: 11, pointerType: 'touch', clientX: ollieX, clientY: ollieY, isPrimary: false
+  });
 
   const dpad = mobile.locator('#dpad');
   const dpadBox = await dpad.boundingBox();
   if (!dpadBox) throw new Error('D-pad has no layout box');
-  await mobile.touchscreen.tap(dpadBox.x + dpadBox.width * .15, dpadBox.y + dpadBox.height * .15);
+  const dpadX = dpadBox.x + dpadBox.width * .15;
+  const dpadY = dpadBox.y + dpadBox.height * .15;
+  await mobile.dispatchEvent('#dpad', 'pointerdown', {
+    pointerId: 22, pointerType: 'touch', clientX: dpadX, clientY: dpadY, isPrimary: true
+  });
+  await mobile.dispatchEvent('#dpad', 'pointerup', {
+    pointerId: 22, pointerType: 'touch', clientX: dpadX, clientY: dpadY, isPrimary: true
+  });
   await mobile.waitForTimeout(100);
 
   const inputCalls = await mobile.evaluate(() => window.__mobileInputCalls);
