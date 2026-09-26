@@ -80,12 +80,23 @@ async function inspectPage(page, label) {
     const controls = document.querySelector('#touch-controls');
     const dpad = document.querySelector('#dpad');
     const actions = [...document.querySelectorAll('[data-action]')].map(button => button.dataset.action);
+    const canvas = document.querySelector('#canvas');
+    const stage = document.querySelector('#stage');
+    const rects = [...document.querySelectorAll('#dpad .control-button, #actions .control-button')]
+      .map(element => {
+        const rect = element.getBoundingClientRect();
+        return { id: element.id, left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+      });
     return {
       touchEnabled: document.documentElement.classList.contains('touch-enabled'),
       controlsVisible: controls && getComputedStyle(controls).display !== 'none',
       dpadVisible: dpad && dpad.getBoundingClientRect().width > 0,
       actions,
-      bridge: typeof Module._mobile_input === 'function'
+      bridge: typeof Module._mobile_input === 'function',
+      viewport: { width: innerWidth, height: innerHeight },
+      stage: { width: stage.clientWidth, height: stage.clientHeight },
+      canvas: { width: canvas.width, height: canvas.height, clientWidth: canvas.clientWidth, clientHeight: canvas.clientHeight },
+      rects
     };
   });
 
@@ -96,6 +107,75 @@ async function inspectPage(page, label) {
   }
   for (const action of expectedActions) {
     if (!mobileState.actions.includes(action)) throw new Error(`Missing mobile action button: ${action}`);
+  }
+
+  function assertControlsInside(state, label) {
+    const tolerance = 2;
+    if (Math.abs(state.stage.width - state.viewport.width) > tolerance ||
+        Math.abs(state.stage.height - state.viewport.height) > tolerance) {
+      throw new Error(`${label}: stage does not match viewport: ${JSON.stringify(state)}`);
+    }
+    if (Math.abs(state.canvas.clientWidth - state.viewport.width) > tolerance ||
+        Math.abs(state.canvas.clientHeight - state.viewport.height) > tolerance) {
+      throw new Error(`${label}: canvas CSS size does not match viewport: ${JSON.stringify(state.canvas)}`);
+    }
+    for (const rect of state.rects) {
+      if (rect.left < -tolerance || rect.top < -tolerance ||
+          rect.right > state.viewport.width + tolerance ||
+          rect.bottom > state.viewport.height + tolerance) {
+        throw new Error(`${label}: control ${rect.id} is outside viewport: ${JSON.stringify(rect)}`);
+      }
+    }
+  }
+
+  assertControlsInside(mobileState, 'landscape');
+
+  await mobile.setViewportSize({ width: 390, height: 844 });
+  await mobile.evaluate(() => window.dispatchEvent(new Event('orientationchange')));
+  await mobile.waitForTimeout(500);
+  const portraitState = await mobile.evaluate(() => {
+    const canvas = document.querySelector('#canvas');
+    const stage = document.querySelector('#stage');
+    const rects = [...document.querySelectorAll('#dpad .control-button, #actions .control-button')]
+      .map(element => {
+        const rect = element.getBoundingClientRect();
+        return { id: element.id, left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+      });
+    return {
+      viewport: { width: innerWidth, height: innerHeight },
+      stage: { width: stage.clientWidth, height: stage.clientHeight },
+      canvas: { width: canvas.width, height: canvas.height, clientWidth: canvas.clientWidth, clientHeight: canvas.clientHeight },
+      rects
+    };
+  });
+  console.log('portrait state:', JSON.stringify(portraitState));
+  assertControlsInside(portraitState, 'portrait');
+  if (portraitState.canvas.height <= portraitState.canvas.width) {
+    throw new Error('Canvas backing resolution did not rotate to portrait');
+  }
+
+  await mobile.setViewportSize({ width: 844, height: 390 });
+  await mobile.evaluate(() => window.dispatchEvent(new Event('orientationchange')));
+  await mobile.waitForTimeout(500);
+  const landscapeAgainState = await mobile.evaluate(() => {
+    const canvas = document.querySelector('#canvas');
+    const stage = document.querySelector('#stage');
+    const rects = [...document.querySelectorAll('#dpad .control-button, #actions .control-button')]
+      .map(element => {
+        const rect = element.getBoundingClientRect();
+        return { id: element.id, left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+      });
+    return {
+      viewport: { width: innerWidth, height: innerHeight },
+      stage: { width: stage.clientWidth, height: stage.clientHeight },
+      canvas: { width: canvas.width, height: canvas.height, clientWidth: canvas.clientWidth, clientHeight: canvas.clientHeight },
+      rects
+    };
+  });
+  console.log('landscape-again state:', JSON.stringify(landscapeAgainState));
+  assertControlsInside(landscapeAgainState, 'landscape-again');
+  if (landscapeAgainState.canvas.width <= landscapeAgainState.canvas.height) {
+    throw new Error('Canvas backing resolution did not rotate back to landscape');
   }
 
   await mobile.evaluate(() => {
