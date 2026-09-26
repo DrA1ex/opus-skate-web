@@ -4663,8 +4663,8 @@ int main(int argc, char** argv) {
     }
     if (!win || !ctx) { fprintf(stderr, "Could not create an OpenGL 3.3 window: %s\n", SDL_GetError()); return 1; }
     if (!gl.load()) { fprintf(stderr, "Required OpenGL functions are missing.\n"); return 1; }
-    SDL_GL_SetSwapInterval(shotMode ? 0 : 1);
 #ifndef __EMSCRIPTEN__
+    SDL_GL_SetSwapInterval(shotMode ? 0 : 1);
     glEnable(GL_MULTISAMPLE);
 #endif
 
@@ -4691,7 +4691,7 @@ int main(int argc, char** argv) {
     cam.yaw = startYaw;
     cam.focus = P.pos + V3(0, 1.05f, 0);
     cam.pos = cam.focus - fwdYaw(cam.yaw) * 5.f + V3(0, 1.2f, 0);
-    fprintf(stderr, "Concrete Jungle: %zu static triangles, %zu solids, %zu rails, %zu pedestrians\n", staticTris, world.solids.size(), world.rails.size(), npcs.size());
+    printf("Concrete Jungle: %zu static triangles, %zu solids, %zu rails, %zu pedestrians\n", staticTris, world.solids.size(), world.rails.size(), npcs.size());
 
     GameMode mode = forceTitle ? GM_TITLE : (startPlaying || shotMode ? GM_PLAY : (startTitle ? GM_TITLE : GM_PLAY));
     bool running = true, showFps = false, session = false, newBest = false;
