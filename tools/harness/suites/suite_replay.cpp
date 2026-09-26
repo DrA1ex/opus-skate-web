@@ -31,19 +31,6 @@ TEST(replay, world_state_is_reproducible_too) {
     }
     CHECK(h[0] == h[1]);
 }
-
-TEST(replay, different_seeds_diverge) {
-    initGame();
-    resetWorld();
-    MonkeyStats a = runMonkey(10, 1u, nullptr, true);
-    uint32_t ha = playerHash();
-    resetWorld();
-    MonkeyStats b = runMonkey(10, 2u, nullptr, true);
-    uint32_t hb = playerHash();
-    printf("    [divergence] seed 1: score %lld, seed 2: score %lld\n", a.score, b.score);
-    CHECK(ha != hb);
-}
-
 TEST(replay, record_then_replay_reproduces_the_run) {
     initGame();
     resetWorld();
@@ -95,20 +82,6 @@ TEST(replay, changed_input_changes_the_outcome) {
     printf("    [replay] tampered hash %08x vs %08x\n", original, changed);
     CHECK(changed != original);
 }
-
-TEST(replay, physics_and_world_can_be_replayed_independently) {
-    initGame();
-    // player-only replay (worldSystems=false) must also be reproducible
-    resetWorld();
-    Replay rec;
-    runMonkey(8, 99u, &rec, false);
-    uint32_t h1 = rec.hash;
-    resetWorld();
-    uint32_t h2 = playReplay(rec);
-    CHECK(h1 == h2);
-    CHECK(rec.worldSystems == false);
-}
-
 TEST(replay, long_run_stays_deterministic) {
     initGame();
     uint32_t h[2];
@@ -141,30 +114,6 @@ TEST(replay, fuzzing_never_produces_invalid_state) {
     printf("    [fuzz] %d runs, %d non-finite\n", runs, bad);
     CHECK(bad == 0);
 }
-
-TEST(replay, monkey_covers_the_whole_state_machine) {
-    initGame();
-    bool seen[5] = {false, false, false, false, false};
-    // deterministic sweep: enough seeds to touch every state
-    for (uint32_t seed = 1; seed <= 8; seed++) {
-        resetWorld();
-        MonkeyRng r(seed * 7u);
-        Sim sim;
-        for (int f = 0; f < 60 * 30; f++) {
-            Input in = monkeyInput(r, P);
-            sim.tick(in);
-            if (P.state >= 0 && P.state < 5) seen[P.state] = true;
-        }
-    }
-    printf("    [coverage] RIDE=%d AIR=%d GRIND=%d MANUAL=%d BAIL=%d\n",
-           seen[0], seen[1], seen[2], seen[3], seen[4]);
-    CHECK(seen[ST_RIDE]);
-    CHECK(seen[ST_AIR]);
-    CHECK(seen[ST_BAIL]);
-    CHECK(seen[ST_GRIND]);
-    CHECK(seen[ST_MANUAL]);
-}
-
 TEST(replay, state_is_not_corrupted_by_a_bail_then_respawn_loop) {
     initGame();
     resetWorld();

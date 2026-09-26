@@ -414,4 +414,22 @@ TEST(world, npc_behaviour_does_not_depend_on_the_particle_rng) {
     CHECK(h[0] == h[1]);
 }
 
+
+TEST(world, runtime_collections_stay_bounded) {
+    initGame();
+    resetWorld();
+    Sim sim;
+    Input in;
+
+    for (int i = 0; i < 120 * 10; i++) sim.tick(in, 1.f / 120.f);
+    const size_t npcsAfterWarmup = npcs.size();
+
+    for (int i = 0; i < 120 * 60; i++) sim.tick(in, 1.f / 120.f);
+
+    CHECK(npcs.size() == npcsAfterWarmup);
+    CHECK(parts.size() <= 7000);
+    CHECK(popups.size() <= 16);
+    CHECK(pigeons.size() < 200);
+}
+
 } // namespace hns

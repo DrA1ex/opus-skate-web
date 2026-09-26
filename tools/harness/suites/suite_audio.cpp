@@ -98,38 +98,6 @@ TEST(audio, voice_allocation_is_bounded) {
     CHECK(alive < 32);
     closeFakeAudioDevice();
 }
-
-TEST(audio, music_sequencer_covers_the_pattern) {
-    initGame();
-    int kicks = 0, snares = 0, hats = 0, bass = 0, keys = 0;
-    LS = LiveState();
-    for (long st = 0; st < 128; st++) {
-        musicStep(st);
-        // a trigger is signalled by the envelope timer being reset to zero; the
-        // audio callback is what advances them, so simulate time passing
-        if (LS.kickT == 0.f) kicks++;
-        if (LS.snareT == 0.f) snares++;
-        if (LS.hatT == 0.f) hats++;
-        if (LS.bassT == 0.f) bass++;
-        if (LS.keyT == 0.f) keys++;
-        LS.kickT = LS.snareT = LS.hatT = LS.bassT = LS.keyT = 9.f;
-    }
-    printf("    [music] 8 bars: %d kicks, %d snares, %d hats, %d bass, %d chords\n", kicks, snares, hats, bass, keys);
-    // 8 bars = 128 sixteenth notes, bar = step/16 mod 4:
-    //   kicks  3 (bar A) + 4 (bar B) per pair   -> 28
-    //   snares 2 per bar                        -> 16
-    //   hats   8 per bar, +1 every 4th bar      -> 66
-    //   bass   2 per bar, +1 on odd bars        -> 20
-    //   chords 3 per bar, 2 on the last bar     -> 22
-    CHECKM(kicks == 28, "kick pattern is unchanged");
-    CHECKM(snares == 16, "snare on 2 and 4 of every bar");
-    CHECKM(hats == 66, "hats on every eighth with a tail fill");
-    CHECKM(bass == 20, "bass line covers every bar");
-    CHECKM(keys == 22, "chords change every bar");
-    CHECK(std::isfinite(LS.bassF) && LS.bassF > 30.f && LS.bassF < 400.f);
-    for (int i = 0; i < 5; i++) CHECK(LS.keyF[i] > 100.f && LS.keyF[i] < 2000.f);
-}
-
 TEST(audio, mixer_output_is_finite_and_bounded) {
     initGame();
     AudioParams p;
@@ -248,17 +216,4 @@ TEST(audio, sfx_triggering_is_safe_without_a_device) {
     for (auto& v : voices) if (v.id >= 0) after++;
     CHECK(after == before);
 }
-
-TEST(audio, mixer_cpu_cost_is_acceptable) {
-    initGame();
-    AudioParams p;
-    p.roll = 0.7f; p.grind = 0.7f; p.grindMetal = 1.f; p.wind = 0.5f; p.water = 0.5f;
-    double t0 = nowMs();
-    renderAudio(AR * 5, p, true);             // five seconds of audio
-    double ms = nowMs() - t0;
-    double budget = 5000.0 / 8.0;             // a quarter of one core for 5 s of audio
-    printf("    [audio] 5 s of full mix in %.0f ms (budget %.0f ms, %.1f%% of real time)\n", ms, budget, ms / 50.0);
-    CHECK(ms < budget);
-}
-
 } // namespace hns

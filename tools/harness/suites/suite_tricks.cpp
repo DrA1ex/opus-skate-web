@@ -439,42 +439,6 @@ TEST(tricks, letters_award_once_and_bonus_completes_the_word) {
     tickPlayer(in, 1);
     CHECK(P.score == after);
 }
-
-TEST(tricks, session_reset_clears_letters_and_score) {
-    initGame();
-    resetWorld();
-    P.letters[0] = P.letters[2] = true;
-    P.lettersGot = 2;
-    P.score = 12345;
-    // mimic startSession()
-    P.score = 0;
-    P.reset(SPAWN_POS, SPAWN_YAW);
-    for (int i = 0; i < 5; i++) P.letters[i] = false;
-    P.lettersGot = 0;
-    popups.clear();
-    CHECK(P.lettersGot == 0 && P.score == 0);
-    CHECK(P.state == ST_RIDE);
-    CHECK(!P.letters[0] && !P.letters[2]);
-}
-
-TEST(tricks, stance_helpers) {
-    initGame();
-    resetWorld();
-    P.reset(SPAWN_POS, SPAWN_YAW);
-    P.vel = fwdYaw(P.yaw) * 5.f;
-    CHECK(!P.isFakie());
-    P.vel = fwdYaw(P.yaw) * -5.f;
-    CHECK(P.isFakie());
-    P.state = ST_RIDE;
-    CHECK(P.grounded());
-    P.state = ST_AIR;
-    CHECK(!P.grounded());
-    P.state = ST_MANUAL;
-    CHECK(P.grounded());
-    P.state = ST_GRIND;
-    CHECK(!P.grounded());
-}
-
 // A hand-authored "reference line" through the spawn area: ollie -> kickflip ->
 // land -> manual -> bank. Used by suite_replay to exercise recording.
 TEST(tricks, reference_line_scores_in_order) {

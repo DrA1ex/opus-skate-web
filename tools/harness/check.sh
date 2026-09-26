@@ -11,11 +11,8 @@ runner_args=()
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --slow)       runner_args+=(--slow); shift ;;
         --filter)     runner_args+=(--filter "$2"); shift 2 ;;
         --repeat)     runner_args+=(--repeat "$2"); shift 2 ;;
-        --no-bench)   runner_args+=(--no-bench); shift ;;
-        --bench-only) runner_args+=(--bench-only); shift ;;
         --verbose)    runner_args+=(--verbose); shift ;;
         --monkey)     runner_args+=(--monkey "$2"); shift 2 ;;
         --junit)      runner_args+=(--junit "$2"); shift 2 ;;
@@ -23,15 +20,15 @@ while [ $# -gt 0 ]; do
         --asan)       mode=asan; shift ;;
         --out)        out=$2; shift 2 ;;
         --clean)      rm -f "$out"; echo "removed $out"; exit 0 ;;
-        -h|--help)    echo "usage: bash tools/harness/check.sh [--slow] [--filter name] [--repeat n] [--junit file] [--tsan|--asan]"; exit 0 ;;
+        -h|--help)    echo "usage: bash tools/harness/check.sh [--filter name] [--repeat n] [--junit file] [--tsan|--asan]"; exit 0 ;;
         *)            echo "unknown option: $1" >&2; exit 2 ;;
     esac
 done
 
 case "$mode" in
     fast) cxx_flags=(-O2) ;;
-    tsan) cxx_flags=(-O1 -g -fsanitize=thread -DHARNESS_SANITIZED=1) ;;
-    asan) cxx_flags=(-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -DHARNESS_SANITIZED=1) ;;
+    tsan) cxx_flags=(-O1 -g -fsanitize=thread) ;;
+    asan) cxx_flags=(-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer) ;;
 esac
 
 if [ "$mode" = tsan ]; then

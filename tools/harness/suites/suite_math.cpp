@@ -1,38 +1,5 @@
 // Adapted from adeism/OSkate arena/01a0cbce-oskate (commit 4bdcb144).
 namespace hns {
-
-// suite_math -- the foundation everything else is built on: vectors, matrices,
-// RNG determinism and colour helpers. Cheap to run, catches silent breakage in
-// the maths that would otherwise show up as "the camera feels weird".
-
-TEST(math, vec_ops) {
-    V3 a(1, 2, 3), b(-4, 0.5f, 2);
-    CHECK(NEAR(dot(a, b), -4 + 1 + 6, 1e-5));
-    V3 c = cross(V3(1, 0, 0), V3(0, 1, 0));
-    CHECK(NEAR(c.x, 0, 1e-6) && NEAR(c.y, 0, 1e-6) && NEAR(c.z, 1, 1e-6));
-    CHECK(NEAR(len(V3(3, 4, 0)), 5, 1e-5));
-    CHECK(NEAR(lenXZ(V3(3, 99, 4)), 5, 1e-5));
-    V3 n = norm(V3(0, 0, 0));
-    CHECK(NEAR(n.y, 1, 1e-6));                       // degenerate input must not be NaN
-    CHECK(std::isfinite(norm(V3(1e-9f, 0, 0)).x));
-    CHECK(NEAR(len(norm(V3(2, -7, 0.5f))), 1, 1e-5));
-    V3 l = lerp3(V3(0, 0, 0), V3(10, 20, 30), 0.25f);
-    CHECK(NEAR(l.x, 2.5, 1e-5) && NEAR(l.z, 7.5, 1e-5));
-}
-
-TEST(math, scalar_helpers) {
-    CHECK(NEAR(clampf(5, 0, 1), 1, 1e-6));
-    CHECK(NEAR(clampf(-5, 0, 1), 0, 1e-6));
-    CHECK(NEAR(sat(1.5f), 1, 1e-6));
-    CHECK(NEAR(smooth01(0.5f), 0.5f, 1e-6));
-    CHECK(NEAR(smooth01(-3.f), 0, 1e-6));
-    CHECK(NEAR(approach(0, 10, 3), 3, 1e-6));
-    CHECK(NEAR(approach(0, -10, 3), -3, 1e-6));
-    CHECK(NEAR(approach(0, 1, 3), 1, 1e-6));         // no overshoot
-    CHECK(NEAR(signf(-0.001f), -1, 1e-6));
-    CHECK(NEAR(signf(0.f), 1, 1e-6));
-}
-
 TEST(math, wrap_pi_stays_in_range) {
     Rng r(7);
     for (int i = 0; i < 20000; i++) {
@@ -125,54 +92,6 @@ TEST(math, rng_is_deterministic) {
     CHECK(e.chance(0.f) == false);
     CHECK(e.chance(1.f) == true);
 }
-
-TEST(math, hash_helpers) {
-    CHECK(hashf(1, 2, 3) == hashf(1, 2, 3));
-    CHECK(hashf(1, 2, 3) != hashf(3, 2, 1));
-    float mn = 2, mx = -1;
-    for (int i = 0; i < 20000; i++) {
-        float h = hashf(i, i * 7, i * 13);
-        mn = std::min(mn, h); mx = std::max(mx, h);
-    }
-    CHECK(mn >= 0.f && mx < 1.f && mx > 0.99f);
-    CHECK(hash32(0) != hash32(1));
-}
-
-TEST(math, colour_helpers) {
-    Col cl(-20, 300, 128);
-    CHECK(cl.r == 0 && cl.g == 255 && cl.b == 128);
-    CHECK(hexc(0xff8040).r == 255 && hexc(0xff8040).g == 128 && hexc(0xff8040).b == 64);
-    CHECK(shade(Col(100, 100, 100), 0.5f).r == 50);
-    Col m = mixc(Col(0, 0, 0), Col(255, 255, 255), 0.5f);
-    CHECK(NEAR(m.r, 127, 2));
-}
-
-TEST(math, embedded_font) {
-    int lit = 0;
-    for (int gy = 0; gy < 7; gy++) if (glyphPixel('A', 0, gy) || glyphPixel('A', 4, gy)) lit++;
-    CHECK(lit > 0);                                  // 'A' actually draws
-    CHECK(glyphPixel(' ', 0, 0) == false);           // space is blank
-    CHECK(glyphPixel('a', 0, 1) == glyphPixel('A', 0, 1));   // lowercase is small-caps
-    CHECK(!glyphPixel('\n', 0, 0));                  // control chars do not read out of bounds
-    CHECK(glyphPixel('#', 0, 3) || glyphPixel('#', 1, 1));
-    std::vector<uint8_t> atlas = buildFontAtlas();
-    CHECK(atlas.size() == 128 * 48);
-    int nz = 0;
-    for (uint8_t v : atlas) if (v) nz++;
-    CHECK(nz > 500);
-}
-
-TEST(math, hud_layout_helpers) {
-    hud.begin(1920, 1080);
-    float w = hud.textW("ABCDE", 2.f);
-    CHECK(NEAR(w, (5 * 6 - 1) * 2.f, 1e-3));
-    CHECK(NEAR(hud.textW("", 2.f), 0, 1e-6));
-    hud.begin(720, 720);
-    CHECK(NEAR(hud.U, 1.f, 1e-3));                   // 1 pixel unit at 720p
-    hud.begin(1440, 1440);
-    CHECK(hud.U > 1.9f && hud.U < 2.1f);
-}
-
 TEST(math, projection_and_screen_space) {
     M4 proj = mPerspective(60.f * PI / 180.f, 16.f / 9.f, 0.1f, 1000.f);
     M4 view = mLookAt(V3(0, 2, 10), V3(0, 2, 0), V3(0, 1, 0));

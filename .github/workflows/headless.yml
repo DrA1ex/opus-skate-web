@@ -34,6 +34,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: ASan + UBSan
-        run: bash tools/harness/check.sh --asan --no-bench
+        run: bash tools/harness/check.sh --asan
       - name: ThreadSanitizer audio snapshot
-        run: bash tools/harness/check.sh --tsan --no-bench
+        run: bash tools/harness/check.sh --tsan

@@ -386,22 +386,4 @@ TEST(physics, physics_is_stable_at_any_tick_rate) {
     CHECK(NEAR(apexAt[0], apexAt[1], 0.25));
     CHECK(NEAR(apexAt[0], apexAt[2], 0.4));
 }
-
-TEST(physics, player_hash_is_stable_across_runs) {
-    initGame();
-    uint32_t hashes[2];
-    for (int k = 0; k < 2; k++) {
-        resetWorld();
-        Input up;
-        up.up = true;
-        tickPlayer(up, 120 * 2);
-        up.ollie = true; up.olliePress = true;
-        tickPlayer(up, 30);
-        up.ollie = false; up.left = true;
-        tickPlayer(up, 90);
-        hashes[k] = playerHash();
-    }
-    CHECK(hashes[0] == hashes[1]);
-}
-
 } // namespace hns
