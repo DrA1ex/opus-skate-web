@@ -2045,6 +2045,151 @@ static void buildSE() {
 }
 
 
+static void cityBench(float x, float z, float yaw, float y0) {
+    Col metal = hexc(0x343b38), wood = hexc(0x77583d);
+    solidBox(x, z, yaw, 1.15f, 0.3f, y0, y0 + 0.44f, metal, MAT_METAL, SURF_METAL, false, &wood);
+    edgeRails(x, z, yaw, 1.15f, 0.3f, y0 + 0.44f, RK_WOOD, false);
+    V3 back = rotLocal(yaw, 0, 0.27f);
+    SM.box(frame(x + back.x, y0 + 0.74f, z + back.z, yaw), V3(1.15f, 0.28f, 0.055f), wood, MAT_WOOD);
+}
+
+static void plazaBollard(float x, float z, float y0) {
+    Col c = hexc(0x353b39);
+    SM.cylinder(frame(x, y0, z, 0), 0.12f, 0.82f, 8, c, MAT_METAL, true, 0.09f);
+    world.addBox(x, z, 0, 0.13f, 0.13f, y0, y0 + 0.84f, SURF_METAL, false);
+}
+
+static void utilityBox(float x, float z, float yaw, float y0, Col col) {
+    Col top = shade(col, 1.12f);
+    solidBox(x, z, yaw, 0.42f, 0.28f, y0, y0 + 0.92f, col, MAT_PAINTED, SURF_METAL, false, &top);
+    V3 out = fwdYaw(yaw);
+    V3 right = rotLocal(yaw, 1, 0);
+    SM.text3D("NYC", V3(x, y0 + 0.54f, z) + out * 0.291f - right * 0.16f,
+              right, V3(0, 1, 0), 0.035f, hexc(0xd8d4c8), MAT_PLAIN);
+}
+
+static void bikeRack(float x, float z, float yaw, float y0) {
+    V3 along = rotLocal(yaw, 1, 0), across = rotLocal(yaw, 0, 1);
+    Col c = hexc(0x4b5350);
+    for (int i = -1; i <= 1; i++) {
+        V3 p = V3(x, y0, z) + along * (i * 0.62f);
+        V3 a = p - across * 0.28f, b = p + across * 0.28f;
+        SM.limb(a, a + V3(0, 0.72f, 0), 0.045f, 0.045f, along, c, MAT_METAL);
+        SM.limb(b, b + V3(0, 0.72f, 0), 0.045f, 0.045f, along, c, MAT_METAL);
+        SM.limb(a + V3(0, 0.72f, 0), b + V3(0, 0.72f, 0), 0.045f, 0.045f,
+                V3(0, 1, 0), c, MAT_METAL);
+    }
+}
+
+static void trashPile(float x, float z, float y0) {
+    Col bag = hexc(0x252827);
+    SM.sphere(mTranslate(V3(x - 0.22f, y0 + 0.24f, z)), V3(0.28f, 0.34f, 0.26f), 7, 4, bag, MAT_PLAIN);
+    SM.sphere(mTranslate(V3(x + 0.18f, y0 + 0.19f, z + 0.12f)), V3(0.23f, 0.27f, 0.22f), 7, 4, shade(bag, 1.12f), MAT_PLAIN);
+    SM.boxAA(V3(x + 0.38f, y0, z - 0.24f), V3(x + 0.78f, y0 + 0.48f, z + 0.24f),
+             hexc(0x806a4c), MAT_WOOD);
+}
+
+static void newspaperBox(float x, float z, float yaw, float y0, Col col) {
+    Col top = shade(col, 0.88f);
+    solidBox(x, z, yaw, 0.25f, 0.3f, y0, y0 + 1.0f, col, MAT_PAINTED, SURF_METAL, false, &top);
+}
+
+static void buildNorthPlaza() {
+    // Start the transition before the old boundary so the extension feels connected to the original block.
+    float y = 0.008f;
+    overlay(-8.8f, 58, 8.8f, 148, y, hexc(0x8e877c), MAT_PAVERS);
+    for (float z = 62; z < 148; z += 8) {
+        overlay(-8.8f, z, 8.8f, z + 0.16f, y + 0.002f, hexc(0xb0aaa0), MAT_PLAIN);
+    }
+    overlay(-0.12f, 58, 0.12f, 148, y + 0.003f, hexc(0x6f6b65), MAT_PLAIN);
+
+    // The entry marker is close enough to be visible from the original play area.
+    Col arch = hexc(0x343b38);
+    float entryZ = 64;
+    SM.limb(V3(-4.2f, 0, entryZ), V3(-4.2f, 3.6f, entryZ), 0.12f, 0.12f, V3(1, 0, 0), arch, MAT_METAL);
+    SM.limb(V3(4.2f, 0, entryZ), V3(4.2f, 3.6f, entryZ), 0.12f, 0.12f, V3(1, 0, 0), arch, MAT_METAL);
+    SM.limb(V3(-4.2f, 3.6f, entryZ), V3(4.2f, 3.6f, entryZ), 0.12f, 0.12f, V3(0, 1, 0), arch, MAT_METAL);
+    world.addBox(-4.2f, entryZ, 0, 0.14f, 0.14f, 0, 3.6f, SURF_METAL);
+    world.addBox(4.2f, entryZ, 0, 0.14f, 0.14f, 0, 3.6f, SURF_METAL);
+    signBoard(V3(0, 3.15f, entryZ - 0.14f), V3(1, 0, 0), V3(0, 1, 0), V3(0, 0, -1),
+              7.2f, 0.62f, "NORTH PLAZA", hexc(0x202422), C_WHITE, false);
+    for (int side = -1; side <= 1; side += 2) {
+        plazaBollard(side * 6.8f, 61.5f, 0);
+        plazaBollard(side * 7.6f, 64.7f, 0);
+    }
+
+    // A first pair of low ledges starts the skate line immediately after the transition.
+    ledge(-5.3f, 70.5f, 0, 0.5f, 2.8f, 0, 0.3f, hexc(0x99948b), MAT_GRANITE);
+    ledge(5.3f, 75.0f, 0, 0.5f, 2.8f, 0, 0.3f, hexc(0x99948b), MAT_GRANITE);
+
+    // Main island: reachable quickly from the original block, with several ways through it.
+    float deckTop = 0.44f;
+    Col deck = hexc(0x9e9990), deckTopCol = hexc(0xaaa59d);
+    solidBox(0, 90.5f, 0, 3.8f, 4.5f, 0, deckTop, deck, MAT_GRANITE,
+             SURF_CONCRETE, false, &deckTopCol);
+    edgeRails(0, 90.5f, 0, 3.8f, 4.5f, deckTop, RK_LEDGE, false);
+    stairs(0, 85.1f, 0, 2.4f, 4, 0.11f, 0.45f, 0, deck, MAT_GRANITE, true);
+    kicker(0, 96.2f, PI, 2.4f, 1.2f, deckTop, 0, hexc(0x8b8175), MAT_CONCRETE,
+           SURF_CONCRETE);
+    world.addGap("NORTH PLAZA STAIRS", 450, 0, 85.1f, 0, 2.2f, 1.4f, deckTop + 0.08f);
+
+    // Mid-plaza lines alternate sides so a run naturally carries the player deeper into the space.
+    ledge(-5.3f, 106.0f, 0, 0.48f, 4.2f, 0, 0.28f, hexc(0xa29c92), MAT_CONCRETE);
+    handrail(V3(3.8f, 0.42f, 109), V3(3.8f, 0.42f, 119), true, C_IRON, 1.4f);
+    ledge(5.3f, 123.5f, 0, 0.48f, 4.2f, 0, 0.28f, hexc(0xa29c92), MAT_CONCRETE);
+    handrail(V3(-4.2f, 0.42f, 131), V3(4.2f, 0.42f, 131), true, C_IRON, 1.4f);
+
+    // Far end stays open, but has a pair of banks and planters as a visual/gameplay destination.
+    kicker(-5.6f, 140.0f, 0, 1.45f, 1.4f, 0.62f, 0, hexc(0x9d7657), MAT_BRICKBANK,
+           SURF_BRICK);
+    kicker(5.6f, 140.0f, 0, 1.45f, 1.4f, 0.62f, 0, hexc(0x9d7657), MAT_BRICKBANK,
+           SURF_BRICK);
+
+    for (int side = -1; side <= 1; side += 2) {
+        float x = side * 6.6f;
+        Col soil = hexc(0x594838);
+        for (float z : {79.5f, 116.0f, 144.0f}) {
+            solidBox(x, z, 0, 1.05f, 1.05f, 0, 0.4f, hexc(0x85817a), MAT_GRANITE,
+                     SURF_CONCRETE, false, &soil);
+            edgeRails(x, z, 0, 1.05f, 1.05f, 0.4f, RK_LEDGE, false);
+            tree(x, z, 0.4f, 0.68f);
+        }
+    }
+
+    // Dense sidewalk dressing ties the plaza back into the surrounding city.
+    cityBench(-11.4f, 67.5f, 0, SH);
+    cityBench(11.4f, 88.0f, PI, SH);
+    cityBench(-11.4f, 111.0f, 0, SH);
+    cityBench(11.4f, 134.0f, PI, SH);
+    bikeRack(11.8f, 72.5f, 0, SH);
+    bikeRack(-11.8f, 126.0f, 0, SH);
+    utilityBox(-12.2f, 83.0f, PI / 2, SH, hexc(0x315a42));
+    utilityBox(12.2f, 108.0f, -PI / 2, SH, hexc(0x4d5960));
+    newspaperBox(-11.7f, 61.0f, 0, SH, hexc(0xb62824));
+    newspaperBox(-11.1f, 61.0f, 0, SH, hexc(0x27589c));
+    newspaperBox(11.8f, 121.0f, 0, SH, hexc(0xd1b52d));
+    trashPile(-13.0f, 74.0f, SH);
+    trashPile(13.3f, 99.0f, SH);
+    trashPile(-13.0f, 137.0f, SH);
+
+    // Break up the long blank east wall and continue the storefront rhythm into the extension.
+    signBoard(V3(15.84f, 2.7f, 79), V3(0, 0, 1), V3(0, 1, 0), V3(-1, 0, 0),
+              5.8f, 0.72f, "COFFEE", hexc(0x6b2a21), hexc(0xf0dcc0), false);
+    signBoard(V3(15.84f, 2.5f, 96), V3(0, 0, 1), V3(0, 1, 0), V3(-1, 0, 0),
+              5.2f, 0.62f, "MARKET", hexc(0x1e5738), C_WHITE, false);
+    signBoard(V3(15.84f, 2.8f, 116), V3(0, 0, 1), V3(0, 1, 0), V3(-1, 0, 0),
+              6.4f, 0.72f, "ARCADE", hexc(0x243b74), hexc(0xffe15a), true);
+    signBoard(V3(15.84f, 2.6f, 137), V3(0, 0, 1), V3(0, 1, 0), V3(-1, 0, 0),
+              5.8f, 0.62f, "DINER", hexc(0xb32727), C_WHITE, false);
+
+    // Small pavement marks and clutter keep the large open floor from reading as a featureless slab.
+    for (float z : {69.f, 88.f, 112.f, 136.f}) {
+        overlay(-7.8f, z, -6.6f, z + 0.08f, y + 0.004f, hexc(0x6e6962), MAT_PLAIN);
+        overlay(6.4f, z + 2.2f, 7.7f, z + 2.28f, y + 0.004f, hexc(0x6e6962), MAT_PLAIN);
+    }
+}
+
+
 static void buildOuterSpots() {
     // The street mesh and building facades already continue well past the original invisible bounds.
     // Populate those corridors so the extra space feels like part of the level instead of empty asphalt.
@@ -2096,8 +2241,8 @@ static void parkedCars() {
         {22, 5.7f, PI / 2, 0, 0}, {36, 5.7f, PI / 2, 1, 1}, {50, 5.7f, PI / 2, 3, 5}, {62, 5.7f, PI / 2, 0, 0},
         {-7.7f, -48, 0, 1, 2}, {-7.7f, -36, 0, 0, 0}, {7.7f, 30, 0, 2, 0}, {7.7f, 46, 0, 1, 4}, {-7.7f, 40, 0, 0, 0},
         {-7.7f, 54, 0, 3, 5}, {7.7f, -20, 0, 1, 1}, {-40, -63.8f, PI / 2, 0, 0}, {-24, -63.8f, PI / 2, 1, 3}, {26, -63.8f, PI / 2, 2, 0}, {46, -63.8f, PI / 2, 0, 0},
-        {7.7f, 96, 0, 0, 0}, {-7.7f, 126, 0, 1, 3}, {92, -5.7f, PI / 2, 2, 0},
-        {112, 5.7f, PI / 2, 1, 4}, {-92, -5.7f, PI / 2, 0, 0}, {-112, 5.7f, PI / 2, 3, 5},
+        {92, -5.7f, PI / 2, 2, 0}, {112, 5.7f, PI / 2, 1, 4},
+        {-92, -5.7f, PI / 2, 0, 0}, {-112, 5.7f, PI / 2, 3, 5},
     };
     for (const P& c : cars) parkedCar(c.x, c.z, c.yaw, c.type, c.type == 0 ? cab : cols[c.col]);
     letterPos.push_back(V3(22, 2.9f, 5.7f));   // 'K' over a parked cab
@@ -2219,6 +2364,7 @@ static void buildLevel() {
     buildCourt();
     buildSW();
     buildSE();
+    buildNorthPlaza();
     buildOuterSpots();
     parkedCars();
     buildPromenade();
