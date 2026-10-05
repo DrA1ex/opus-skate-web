@@ -7257,7 +7257,7 @@ static void drawTraffic(MeshBuilder& mb, V3 cam) {
     for (auto& c : cars) {
         float yaw;
         V3 p = carWorld(c, yaw);
-        if (std::fabs(p.x - cam.x) > 520 || std::fabs(p.z - cam.z) > 520) continue;
+        if (lenXZ(p - cam) > 180.f) continue;
         carGeom(mb, frame(p.x, 0, p.z, yaw), c.type, c.col, c.brake);
     }
 }
@@ -7310,7 +7310,7 @@ static void addPlayerFill(V3 camPos, V3 skater) {
 static void drawBeacons(MeshBuilder& mb, V3 cam) {
     int step = (int)std::floor(tlTimer * 3.f);
     for (auto& b : beacons) {
-        if (std::fabs(b.pos.x - cam.x) > 260 || std::fabs(b.pos.z - cam.z) > 260) continue;
+        if (lenXZ(b.pos - cam) > 180.f) continue;
         bool on = (step + b.phase) % 4 == 0;
         mb.box(mTranslate(b.pos), V3(0.11f, 0.15f, 0.11f), on ? hexc(0xffa020) : hexc(0x6a4408), on ? MAT_EMISSIVE : MAT_PAINTED);
     }
@@ -8372,7 +8372,9 @@ static float renderScale(int W, int H) {
 static void gatherLights(V3 cam, V3 camFwd, int maxLights) {
     frameLights.clear();
     if (LIGHT.lamps <= 0.f || getenv("CJ_DEBUG_NOLIGHTS")) return;
-    std::vector<std::pair<float, PointLight>> cand;
+    static std::vector<std::pair<float, PointLight>> cand;
+    cand.clear();
+    cand.reserve(staticLights.size() + dynLights.size());
     auto consider = [&](const PointLight& l) {
         V3 d = l.pos - cam;
         float dist = len(d);
@@ -8925,18 +8927,28 @@ static void renderFrame(const FrameInfo& F, V3 poolCenter) {
 
     // ---- 7. screen-space reflections into hdr1
     glDisable(GL_DEPTH_TEST);
-    gl.BindFramebuffer(GL_FRAMEBUFFER, RD.fboHdr1);
-    bindTex(TU_A, GL_TEXTURE_2D, RD.hdr0);
-    if (Q.ssr > 0) gl.GenerateMipmap(GL_TEXTURE_2D);
-    setCommon(RD.pSSR, F.camPos, F.time);
-    setPostUniforms(RD.pSSR, F.vp, invVP);
-    bindTexU(RD.pSSR, "uColor", TU_A, RD.hdr0);
-    bindTexU(RD.pSSR, "uDepth", TU_B, RD.depth);
-    bindTexU(RD.pSSR, "uReflInfo", TU_C, RD.reflInfo);
-    bindTexU(RD.pSSR, "uSurf", TU_D, RD.surf);
-    set1i(RD.pSSR, "uSteps", Q.ssr);
-    set2f(RD.pSSR, "uRes", (float)RD.iw, (float)RD.ih);
-    drawFullscreen();
+    if (Q.ssr > 0) {
+        gl.BindFramebuffer(GL_FRAMEBUFFER, RD.fboHdr1);
+        bindTex(TU_A, GL_TEXTURE_2D, RD.hdr0);
+        gl.GenerateMipmap(GL_TEXTURE_2D);
+        setCommon(RD.pSSR, F.camPos, F.time);
+        setPostUniforms(RD.pSSR, F.vp, invVP);
+        bindTexU(RD.pSSR, "uColor", TU_A, RD.hdr0);
+        bindTexU(RD.pSSR, "uDepth", TU_B, RD.depth);
+        bindTexU(RD.pSSR, "uReflInfo", TU_C, RD.reflInfo);
+        bindTexU(RD.pSSR, "uSurf", TU_D, RD.surf);
+        set1i(RD.pSSR, "uSteps", Q.ssr);
+        set2f(RD.pSSR, "uRes", (float)RD.iw, (float)RD.ih);
+        drawFullscreen();
+    } else {
+        // LOW/MEDIUM do not need the SSR shader or a freshly generated HDR
+        // mip chain.  A direct same-format blit is substantially cheaper on
+        // WebGL/mobile GPUs and preserves the input for the water pass.
+        gl.BindFramebuffer(GL_READ_FRAMEBUFFER, RD.fboMain);
+        gl.BindFramebuffer(GL_DRAW_FRAMEBUFFER, RD.fboHdr1);
+        gl.BlitFramebuffer(0, 0, RD.iw, RD.ih, 0, 0, RD.iw, RD.ih,
+                           GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    }
 
     // ---- 8. water (reads the opaque scene for refraction and screen-space reflections)
     gl.BindFramebuffer(GL_READ_FRAMEBUFFER, RD.fboMain);
