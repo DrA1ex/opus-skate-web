@@ -82,7 +82,9 @@ inline void rebuildLevel() {
     world.grid.clear();
     emitters.clear();
     tlights.clear();
-    lamps.clear();
+    staticLights.clear();
+    dynLights.clear();
+    frameLights.clear();
     npcPaths.clear();
     pigeonSpots.clear();
     letterPos.clear();
