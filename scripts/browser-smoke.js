@@ -133,11 +133,17 @@ async function run() {
   }
 }
 
-Promise.race([
-  run(),
-  new Promise((_, reject) =>
-    setTimeout(() => reject(new Error('Browser smoke test exceeded 60 seconds')), 60000))
-]).catch(error => {
+const watchdog = setTimeout(() => {
+  console.error('Browser smoke test exceeded 60 seconds');
+  process.exit(1);
+}, 60000);
+watchdog.unref();
+
+run().then(() => {
+  clearTimeout(watchdog);
+  process.exit(0);
+}).catch(error => {
+  clearTimeout(watchdog);
   console.error(error.stack || error);
-  process.exitCode = 1;
+  process.exit(1);
 });
