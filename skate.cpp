@@ -8772,8 +8772,13 @@ static void renderFrame(const FrameInfo& F, V3 poolCenter) {
     gl.UseProgram(RD.pShadow);
     for (int c = 0; c < NUM_CASC; c++) {
         gl.FramebufferTextureLayer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, RD.shadowTex, 0, c);
+#ifdef __EMSCRIPTEN__
+        const GLenum none = GL_NONE;
+        glDrawBuffers(1, &none);
+#else
         glDrawBuffer(GL_NONE);
         glReadBuffer(GL_NONE);
+#endif
         glClear(GL_DEPTH_BUFFER_BIT);
         setMat(RD.pShadow, "uLightVP", RD.cascVP[c]);
         Frustum fc; fc.set(RD.cascVP[c]);
