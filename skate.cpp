@@ -354,6 +354,11 @@ enum Mat : uint8_t {
 static const uint8_t INT_FLAG = 64;    // added to a material: shop interior (room light, no sun, no shadows)
 static const uint8_t OBJ_FLAG = 128;   // added by MeshBuilder while an object frame is set: textures use object space
 
+// Defined with the graphics settings later in the file. Geometry builders use
+// this to generate a much lighter visual LOD for the LOW/mobile preset while
+// keeping collision/gameplay layout unchanged.
+static bool lowDetailGeometry();
+
 struct Vtx {
     float p[3];
     float n[3];
@@ -2626,26 +2631,38 @@ static void tree(float x, float z, float y0, float scale = 1.f) {
     SM.boxAA(V3(x - 0.75f, y0 - 0.02f, z - 0.75f), V3(x + 0.75f, y0 + 0.02f, z + 0.75f), hexc(0x3f3326), MAT_CONCRETE, 4);
     float th = 2.6f * scale;
     Col bark = hexc(0x4a3c30);
-    V3 top(x + r.range(-0.12f, 0.12f) * scale, y0 + th, z + r.range(-0.12f, 0.12f) * scale);
-    SM.capsule(V3(x, y0 - 0.05f, z), top, 0.14f * scale, 0.09f * scale, V3(1, 0, 0), bark, MAT_BARK, 1.f, 0.3f, 9);
     world.addBox(x, z, 0, 0.14f, 0.14f, y0, y0 + th + 2.f, SURF_WOOD, false);
-    // crown: branches reaching into an ellipsoid filled with leaf clumps
-    V3 crownC = top + V3(0, 1.25f * scale, 0), crownR = V3(1.75f, 1.35f, 1.75f) * scale;
-    for (int k = 0; k < 4; k++) {
-        float a = k * TAU / 4 + r.range(-0.4f, 0.4f);
-        V3 tip = crownC + V3(std::sin(a) * 1.0f, r.range(-0.2f, 0.6f), std::cos(a) * 1.0f) * scale;
-        SM.capsule(top - V3(0, 0.3f * scale, 0), tip, 0.07f * scale, 0.035f * scale, V3(0, 1, 0), bark, MAT_BARK, 1.f, 0.5f, 6);
-    }
-    Col g0 = hexc(0x365f24), g1 = hexc(0x6b8c33);
-    for (int k = 0; k < 24; k++) {
-        V3 d;
-        do d = V3(r.range(-1, 1), r.range(-1, 1), r.range(-1, 1)); while (len(d) > 1.f);
-        float l = len(d);
-        d = l > 1e-3f ? d / l * std::pow(l, 0.4f) : V3(0, 1, 0);   // favour the outside of the crown
-        V3 c = crownC + mulv(d, crownR) * 0.78f;
-        float rad = r.range(0.5f, 0.78f) * scale;
-        Col col = mixc(g0, g1, sat(r.f() * 0.8f + (d.y * 0.5f + 0.5f) * 0.35f));
-        leafClump(c, V3(rad, rad * 0.85f, rad), crownC, crownR, col, 8, 5);
+    if (lowDetailGeometry()) {
+        SM.cylinder(frame(x, y0, z, 0), 0.12f * scale, th, 7, bark, MAT_BARK, false, 0.08f * scale);
+        for (int k = 0; k < 4; k++) {
+            V3 cc(x + r.range(-0.8f, 0.8f) * scale,
+                  y0 + th + r.range(0.3f, 1.6f) * scale,
+                  z + r.range(-0.8f, 0.8f) * scale);
+            float rad = r.range(1.0f, 1.5f) * scale;
+            SM.sphere(mTranslate(cc), V3(rad, rad * 0.8f, rad), 7, 4,
+                      mixc(hexc(0x3f6b2a), hexc(0x6f8f35), r.f()), MAT_FOLIAGE);
+        }
+    } else {
+        V3 top(x + r.range(-0.12f, 0.12f) * scale, y0 + th, z + r.range(-0.12f, 0.12f) * scale);
+        SM.capsule(V3(x, y0 - 0.05f, z), top, 0.14f * scale, 0.09f * scale, V3(1, 0, 0), bark, MAT_BARK, 1.f, 0.3f, 9);
+        // crown: branches reaching into an ellipsoid filled with leaf clumps
+        V3 crownC = top + V3(0, 1.25f * scale, 0), crownR = V3(1.75f, 1.35f, 1.75f) * scale;
+        for (int k = 0; k < 4; k++) {
+            float a = k * TAU / 4 + r.range(-0.4f, 0.4f);
+            V3 tip = crownC + V3(std::sin(a) * 1.0f, r.range(-0.2f, 0.6f), std::cos(a) * 1.0f) * scale;
+            SM.capsule(top - V3(0, 0.3f * scale, 0), tip, 0.07f * scale, 0.035f * scale, V3(0, 1, 0), bark, MAT_BARK, 1.f, 0.5f, 6);
+        }
+        Col g0 = hexc(0x365f24), g1 = hexc(0x6b8c33);
+        for (int k = 0; k < 24; k++) {
+            V3 d;
+            do d = V3(r.range(-1, 1), r.range(-1, 1), r.range(-1, 1)); while (len(d) > 1.f);
+            float l = len(d);
+            d = l > 1e-3f ? d / l * std::pow(l, 0.4f) : V3(0, 1, 0);
+            V3 cc = crownC + mulv(d, crownR) * 0.78f;
+            float rad = r.range(0.5f, 0.78f) * scale;
+            Col col = mixc(g0, g1, sat(r.f() * 0.8f + (d.y * 0.5f + 0.5f) * 0.35f));
+            leafClump(cc, V3(rad, rad * 0.85f, rad), crownC, crownR, col, 8, 5);
+        }
     }
     // low iron tree-pit guard (grindable, NYC classic)
     float g = 0.8f, gy = y0 + 0.42f;
@@ -2736,6 +2753,42 @@ static void carSection(MeshBuilder& mb, const M4& F, const float (*pts)[2], int 
 // Car body geometry. type 0 = yellow cab, 1 = sedan, 2 = town car, 3 = van. F: ground frame, nose +Z.
 static void carGeom(MeshBuilder& mb, const M4& F, int type, Col body, float brake = 0) {
     float L = type == 3 ? 2.6f : 2.45f, Wd = 0.95f;
+    if (lowDetailGeometry()) {
+        // Mobile/LOW LOD: preserve the silhouette, lights and collision-scale
+        // dimensions without the expensive wheel meshes, plates, handles,
+        // pillars and taxi checker geometry.
+        float bodyTop = type == 3 ? 1.9f : 0.95f;
+        mb.box(F * mTranslate(V3(0, (0.3f + bodyTop) * 0.5f, 0)),
+               V3(Wd, (bodyTop - 0.3f) * 0.5f, L), body, MAT_CARPAINT);
+        mb.box(F * mTranslate(V3(0, 0.36f, 0)), V3(Wd + 0.02f, 0.06f, L + 0.04f),
+               hexc(0x202024), MAT_RUBBER);
+        if (type != 3) {
+            mb.box(F * mTranslate(V3(0, 1.22f, -0.15f)), V3(Wd * 0.9f, 0.27f, 1.15f),
+                   body, MAT_CARPAINT);
+            mb.box(F * mTranslate(V3(0, 1.2f, -0.15f)), V3(Wd * 0.92f, 0.2f, 1.1f),
+                   hexc(0x1a232c), MAT_CARGLASS, 1 | 2 | 16 | 32);
+        } else {
+            mb.box(F * mTranslate(V3(0, 1.45f, 1.9f)), V3(Wd * 0.95f, 0.25f, 0.72f),
+                   hexc(0x1a232c), MAT_CARGLASS, 16 | 1 | 2);
+        }
+        for (int i = 0; i < 4; i++) {
+            float sx = (i & 1) ? Wd * 0.92f : -Wd * 0.92f;
+            float sz = (i & 2) ? L * 0.62f : -L * 0.62f;
+            mb.box(F * mTranslate(V3(sx, 0.32f, sz)), V3(0.12f, 0.32f, 0.32f),
+                   hexc(0x111111), MAT_RUBBER);
+        }
+        for (int sg = -1; sg <= 1; sg += 2) {
+            mb.box(F * mTranslate(V3(sg * 0.62f, 0.72f, L + 0.01f)),
+                   V3(0.17f, 0.07f, 0.015f), hexc(0xfff4d8), MAT_EMISSIVE);
+            mb.box(F * mTranslate(V3(sg * 0.66f, 0.72f, -L - 0.01f)),
+                   V3(0.15f, 0.07f, 0.015f),
+                   brake > 0.5f ? hexc(0xff2a1a) : hexc(0x8a1010), MAT_EMISSIVE);
+        }
+        if (type == 0)
+            mb.box(F * mTranslate(V3(0, 1.54f, -0.2f)), V3(0.34f, 0.08f, 0.13f),
+                   hexc(0xfff6c8), MAT_EMISSIVE);
+        return;
+    }
     Col glass = hexc(0x1a232c), trim = hexc(0x1c1c1e), tire = hexc(0x161616), chrome = hexc(0xb8bcc2);
     mb.beginObj(F);   // paint flakes, shut lines and road grime are textured in the car's own space
     if (type != 3) {
@@ -3300,8 +3353,8 @@ static void storefront(V3 o, V3 r, V3 n, float w, const std::string& name, Col s
     M4 T = mBasis(r, up, n, o + r * (w * 0.5f) + up * 3.75f + n * 0.1f);
     SM.box(T, V3(w * 0.5f - 0.5f, 0.25f, 0.1f), hexc(0x3d3935), MAT_PAINTED);
     signBoard(o + r * (w * 0.5f) + up * 4.3f + n * 0.12f, r, up, n, w - 1.0f, 0.75f, name, signBg, signFg, rng.chance(0.4f));
-    if (real) shopInterior(o, r, n, w, depth, name, doorX, doorW);
-    if (real) {   // taped-up posters and price cards on the glass
+    if (real && !lowDetailGeometry()) shopInterior(o, r, n, w, depth, name, doorX, doorW);
+    if (real && !lowDetailGeometry()) {   // taped-up posters and price cards on the glass
         Rng pr(hash32((uint32_t)(int)std::floor(o.x * 3.7f) * 92837111u ^ (uint32_t)(int)std::floor(o.z * 3.1f) * 689287499u));
         static const uint32_t pc[] = {0xe23b3b, 0xf5d142, 0xf0efe8, 0x3b7de2, 0xf08a24};
         int np = pr.irange(0, 2);
@@ -3315,7 +3368,7 @@ static void storefront(V3 o, V3 r, V3 n, float w, const std::string& name, Col s
         }
     }
     // neon "OPEN" in the window sometimes
-    if (rng.chance(0.55f)) {
+    if (!lowDetailGeometry() && rng.chance(0.55f)) {
         float px = 0.045f;
         V3 no = o + r * (doorX < w * 0.5f ? w - 2.2f : 1.0f) + up * 2.4f + n * (0.03f + FACADE_EPS);
         SM.text3D("OPEN", no, r, up, px, rng.chance(0.5f) ? hexc(0xff3060) : hexc(0x40c0ff), MAT_EMISSIVE);
@@ -3434,7 +3487,7 @@ static void building(float x0, float z0, float x1, float z1, float h, int style,
     } else {
         SM.boxAA(V3(x0 + 1, h, z0 + 1), V3(x1 - 1, h + 3, z1 - 1), hexc(0x5b6066), MAT_CONCRETE);
     }
-    if (roofStuff && style != 2) {
+    if (roofStuff && style != 2 && !lowDetailGeometry()) {
         float w = x1 - x0, d = z1 - z0;
         if (r.chance(0.6f) && w > 5 && d > 5) waterTower(x0 + w * r.range(0.3f, 0.7f), h + 0.45f, z0 + d * r.range(0.3f, 0.7f), r.range(0.8f, 1.1f));
         int n = r.irange(1, 3);
@@ -3489,7 +3542,7 @@ static void facadeRow(V3 left, V3 out, float length, float depth, uint32_t seed,
             storefront(p0 + out * FACADE_EPS, r, out, w, SHOP_NAMES[shopIdx++ % 28], hexc(signBg[k]), hexc(signFg[k]),
                        hexc(awn[rng.irange(0, 5)]), rng.chance(0.6f), rng, depth, real);
         }
-        if (style == 0 && h > 12 && rng.chance(0.5f))
+        if (!lowDetailGeometry() && style == 0 && h > 12 && rng.chance(0.5f))
             fireEscape(p0 + r * (w * 0.2f) + out * FACADE_EPS, r, out, w * 0.6f, (int)((h - 5.f) / 3.3f));
         x += w;
     }
@@ -4300,6 +4353,15 @@ static void buildSkyline() {
 // Lightweight tree for the far background
 static void farTree(float x, float z, float y0) {
     Rng r((uint32_t)(x * 131 + z * 71 + 999));
+    if (lowDetailGeometry()) {
+        SM.cylinder(frame(x, y0, z, 0), 0.11f, 2.6f, 6, hexc(0x4a3c30), MAT_BARK, false, 0.07f);
+        for (int k = 0; k < 2; k++) {
+            V3 cc(x + r.range(-0.65f, 0.65f), y0 + 3.2f + k * 0.65f, z + r.range(-0.65f, 0.65f));
+            SM.sphere(mTranslate(cc), V3(1.25f, 1.0f, 1.25f), 6, 3,
+                      mixc(hexc(0x365f24), hexc(0x6b8c33), r.f()), MAT_FOLIAGE);
+        }
+        return;
+    }
     V3 top(x, y0 + 2.6f, z);
     SM.capsule(V3(x, y0, z), top, 0.14f, 0.09f, V3(1, 0, 0), hexc(0x4a3c30), MAT_BARK, 1.f, 0.3f, 6);
     V3 crownC = top + V3(0, 1.25f, 0), crownR(1.75f, 1.35f, 1.75f);
@@ -8360,6 +8422,7 @@ struct Settings {
     bool motionBlur = true, filmGrain = true, showFps = false, fullscreen = false;
 };
 static Settings SET;
+static bool lowDetailGeometry() { return SET.quality == 0; }
 
 static float renderScale(int W, int H) {
     if (SET.scaleOverride > 0) return SET.scaleOverride;
