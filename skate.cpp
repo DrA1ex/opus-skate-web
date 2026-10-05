@@ -8496,7 +8496,14 @@ static GLuint makeFbo(std::initializer_list<GLuint> colors, GLuint depthTex, con
     }
     if (depthTex) gl.FramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthTex, 0);
     if (n) gl.DrawBuffers(n, bufs);
-    else { glDrawBuffer(GL_NONE); glReadBuffer(GL_NONE); }
+    else {
+#ifdef __EMSCRIPTEN__
+        const GLenum none = GL_NONE;
+        glDrawBuffers(1, &none);
+#else
+        glDrawBuffer(GL_NONE); glReadBuffer(GL_NONE);
+#endif
+    }
     if (gl.CheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) fprintf(stderr, "framebuffer '%s' incomplete\n", what);
     gl.BindFramebuffer(GL_FRAMEBUFFER, 0);
     return f;
