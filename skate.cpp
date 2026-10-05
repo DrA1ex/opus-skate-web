@@ -21,6 +21,7 @@
 //     W / Up ............ push (accelerate)          S / Down ...... brake
 //     A D / Left Right .. steer | spin in the air | balance on rails
 //     SPACE ............. ollie (hold to crouch, release to pop: longer = higher)
+//     SPACE + A/D on rail  side-hop off a grind instead of spinning back onto it
 //     J or Z + dir ...... flip tricks (kickflip, heelflip, shove-it, impossible, 360 flip)
 //     K or X + dir ...... grab tricks (hold to keep grabbing -- let go before landing!)
 //     L or C + dir ...... grind / slide when near a rail, ledge, bench or curb
@@ -42,6 +43,7 @@
 #endif
 #endif
 #include <cstdio>
+#include <cerrno>
 #include <cstdlib>
 #include <cstring>
 #include <cstdint>
@@ -50,7 +52,10 @@
 #include <vector>
 #include <algorithm>
 #include <functional>
+#include <mutex>
 #include <map>
+
+  if(bumpAmt > 0.0) n = detailNormal(n, bump, bumpAmt);
 
 #ifndef APIENTRY
 #define APIENTRY
@@ -282,8 +287,9 @@ inline M4 mInverse(const M4& mat) {
 // Small deterministic RNG + hashes (so the city looks the same every run)
 struct Rng {
     uint32_t s;
+    uint64_t draws = 0;      // instrumentation for deterministic replay/tests
     explicit Rng(uint32_t seed = 1234567u) : s(seed ? seed : 1u) {}
-    uint32_t next() { s ^= s << 13; s ^= s >> 17; s ^= s << 5; return s; }
+    uint32_t next() { draws++; s ^= s << 13; s ^= s >> 17; s ^= s << 5; return s; }
     float f() { return (next() & 0xFFFFFF) / 16777216.f; }
     float range(float a, float b) { return a + (b - a) * f(); }
     int irange(int a, int b) { return a + (int)(next() % (uint32_t)(b - a + 1)); }
@@ -660,6 +666,8 @@ struct StaticMesh {
 // and furnished rooms behind every window (interior mapping).
 // ----------------------------------------------------------------------------
 #define MAX_LIGHTS 48
+static const float SURFACE_EPS = 0.012f;   // visual layers above coplanar ground surfaces
+static const float SURFACE_STEP = 0.008f;  // spacing between stacked paint / paving layers
 
 // World geometry (depth/normal prepass, main pass and planar reflection share it so depths match exactly)
 static const char* WORLD_VS = R"(
@@ -1127,6 +1135,7 @@ void main(){
 #endif
 
   if((m == 11 || m == 29) && fenceCut(vPos, n, m)) discard;
+  float bump = 0.0, bumpAmt = 0.0;
   bool horiz = abs(n.y) > 0.6;
   vec2 uv; vec3 T, B;
   if(horiz){ uv = vPos.xz; T = vec3(1.0, 0.0, 0.0); B = vec3(0.0, 0.0, 1.0); }
@@ -2401,6 +2410,7 @@ static std::vector<PointLight> staticLights, dynLights, frameLights;
 static const Col C_ASPHALT = hexc(0x55555a), C_SIDEWALK = hexc(0xa9a59c), C_CURB = hexc(0x8f8b84);
 static const Col C_GRANITE = hexc(0x8d8a86), C_IRON = hexc(0x1e2220), C_STEEL = hexc(0x9aa0a6);
 static const Col C_WOOD = hexc(0x8a6a48), C_PLYWOOD = hexc(0xc49a62), C_YELLOW = hexc(0xf2c318), C_WHITE = hexc(0xeeeeea);
+static const float FACADE_EPS = 0.018f;    // decals / storefront layers in front of building walls
 
 static V3 rotLocal(float rot, float lx, float lz) {   // local (x,z) offset -> world offset
     float c = std::cos(rot), s = std::sin(rot);
@@ -3273,7 +3283,7 @@ static void storefront(V3 o, V3 r, V3 n, float w, const std::string& name, Col s
     // neon "OPEN" in the window sometimes
     if (rng.chance(0.55f)) {
         float px = 0.045f;
-        V3 no = o + r * (doorX < w * 0.5f ? w - 2.2f : 1.0f) + up * 2.4f + n * 0.05f;
+        V3 no = o + r * (doorX < w * 0.5f ? w - 2.2f : 1.0f) + up * 2.4f + n * (0.03f + FACADE_EPS);
         SM.text3D("OPEN", no, r, up, px, rng.chance(0.5f) ? hexc(0xff3060) : hexc(0x40c0ff), MAT_EMISSIVE);
     }
     if (hasAwning) {
@@ -3385,8 +3395,9 @@ static void building(float x0, float z0, float x1, float z1, float h, int style,
     Rng r(seed);
     if (style != 2) {
         Col cor = style == 1 ? shade(col, 0.85f) : hexc(0x6d665c);
-        SM.boxAA(V3(x0 - 0.35f, h - 0.15f, z0 - 0.35f), V3(x1 + 0.35f, h + 0.45f, z1 + 0.35f), cor, MAT_CONCRETE);
-        SM.boxAA(V3(x0 - 0.12f, 4.7f, z0 - 0.12f), V3(x1 + 0.12f, 4.95f, z1 + 0.12f), cor, MAT_CONCRETE);   // storefront cornice line
+        int trimFaces = wallFaces | 4 | 8;
+        SM.boxAA(V3(x0 - 0.35f, h - 0.15f, z0 - 0.35f), V3(x1 + 0.35f, h + 0.45f, z1 + 0.35f), cor, MAT_CONCRETE, trimFaces);
+        SM.boxAA(V3(x0 - 0.12f, 4.7f, z0 - 0.12f), V3(x1 + 0.12f, 4.95f, z1 + 0.12f), cor, MAT_CONCRETE, trimFaces);   // storefront cornice line
     } else {
         SM.boxAA(V3(x0 + 1, h, z0 + 1), V3(x1 - 1, h + 3, z1 - 1), hexc(0x5b6066), MAT_CONCRETE);
     }
@@ -3442,10 +3453,11 @@ static void facadeRow(V3 left, V3 out, float length, float depth, uint32_t seed,
         building(mn.x, mn.z, mx.x, mx.z, h, style, col, rng.next(), true, true, (shops && real) ? &op : nullptr);
         if (shops) {
             int k = rng.irange(0, 7);
-            storefront(p0 + out * 0.001f, r, out, w, SHOP_NAMES[shopIdx++ % 28], hexc(signBg[k]), hexc(signFg[k]),
+            storefront(p0 + out * FACADE_EPS, r, out, w, SHOP_NAMES[shopIdx++ % 28], hexc(signBg[k]), hexc(signFg[k]),
                        hexc(awn[rng.irange(0, 5)]), rng.chance(0.6f), rng, depth, real);
         }
-        if (style == 0 && h > 12 && rng.chance(0.5f)) fireEscape(p0 + r * (w * 0.2f) + out * 0.01f, r, out, w * 0.6f, (int)((h - 5.f) / 3.3f));
+        if (buildShells && style == 0 && h > 12 && rng.chance(0.5f))
+            fireEscape(p0 + r * (w * 0.2f) + out * FACADE_EPS, r, out, w * 0.6f, (int)((h - 5.f) / 3.3f));
         x += w;
     }
 }
@@ -3539,7 +3551,7 @@ static void buildNW() {
     facadeRow(V3(-170, 0, -12), V3(0, 0, 1), 100.5f, 16, 101, true, 12, 24, -1);
     facadeRow(V3(-69.5f, 0, -57), V3(0, 0, -1), 100.5f, 16, 102, true, 12, 22, -1);
     building(-170, -41, -69.5f, -28, 18, 0, hexc(0x7a4a3a), 14, false);
-    building(-70, -45, -26, -24, 14, 0, hexc(0x6a3a2e), 15, false);   // block interior filler
+    building(-69.5f, -41, -30, -28, 14, 0, hexc(0x6a3a2e), 15, false);   // interior filler; no facade overlap
     subwayEntrance(-11.4f, -30.5f);
     tree(-10.3f, -45, SH); tree(-10.3f, -18, SH); tree(-30, -8.1f, SH); tree(-52, -8.1f, SH);
     for (float z = -55; z < -10; z += 22) streetLamp(-9.7f, z, SH, PI / 2);
@@ -3906,6 +3918,194 @@ static void buildSE() {
     pigeonSpots.push_back(V3(13, SH, 50));
 }
 
+
+static void cityBench(float x, float z, float yaw, float y0) {
+    Col metal = hexc(0x343b38), wood = hexc(0x77583d);
+    solidBox(x, z, yaw, 1.15f, 0.3f, y0, y0 + 0.44f, metal, MAT_METAL, SURF_METAL, false, &wood);
+    edgeRails(x, z, yaw, 1.15f, 0.3f, y0 + 0.44f, RK_WOOD, false);
+    V3 back = rotLocal(yaw, 0, 0.27f);
+    SM.box(frame(x + back.x, y0 + 0.74f, z + back.z, yaw), V3(1.15f, 0.28f, 0.055f), wood, MAT_WOOD);
+}
+
+static void plazaBollard(float x, float z, float y0) {
+    Col c = hexc(0x353b39);
+    SM.cylinder(frame(x, y0, z, 0), 0.12f, 0.82f, 8, c, MAT_METAL, true, 0.09f);
+    world.addBox(x, z, 0, 0.13f, 0.13f, y0, y0 + 0.84f, SURF_METAL, false);
+}
+
+static void utilityBox(float x, float z, float yaw, float y0, Col col) {
+    Col top = shade(col, 1.12f);
+    solidBox(x, z, yaw, 0.42f, 0.28f, y0, y0 + 0.92f, col, MAT_PAINTED, SURF_METAL, false, &top);
+    V3 out = fwdYaw(yaw);
+    V3 right = rotLocal(yaw, 1, 0);
+    SM.text3D("NYC", V3(x, y0 + 0.54f, z) + out * 0.291f - right * 0.16f,
+              right, V3(0, 1, 0), 0.035f, hexc(0xd8d4c8), MAT_PLAIN);
+}
+
+static void bikeRack(float x, float z, float yaw, float y0) {
+    V3 along = rotLocal(yaw, 1, 0), across = rotLocal(yaw, 0, 1);
+    Col c = hexc(0x4b5350);
+    for (int i = -1; i <= 1; i++) {
+        V3 p = V3(x, y0, z) + along * (i * 0.62f);
+        V3 a = p - across * 0.28f, b = p + across * 0.28f;
+        SM.limb(a, a + V3(0, 0.72f, 0), 0.045f, 0.045f, along, c, MAT_METAL);
+        SM.limb(b, b + V3(0, 0.72f, 0), 0.045f, 0.045f, along, c, MAT_METAL);
+        SM.limb(a + V3(0, 0.72f, 0), b + V3(0, 0.72f, 0), 0.045f, 0.045f,
+                V3(0, 1, 0), c, MAT_METAL);
+    }
+}
+
+static void trashPile(float x, float z, float y0) {
+    Col bag = hexc(0x252827);
+    SM.sphere(mTranslate(V3(x - 0.22f, y0 + 0.24f, z)), V3(0.28f, 0.34f, 0.26f), 7, 4, bag, MAT_PLAIN);
+    SM.sphere(mTranslate(V3(x + 0.18f, y0 + 0.19f, z + 0.12f)), V3(0.23f, 0.27f, 0.22f), 7, 4, shade(bag, 1.12f), MAT_PLAIN);
+    SM.boxAA(V3(x + 0.38f, y0, z - 0.24f), V3(x + 0.78f, y0 + 0.48f, z + 0.24f),
+             hexc(0x806a4c), MAT_WOOD);
+}
+
+static void newspaperBox(float x, float z, float yaw, float y0, Col col) {
+    Col top = shade(col, 0.88f);
+    solidBox(x, z, yaw, 0.25f, 0.3f, y0, y0 + 1.0f, col, MAT_PAINTED, SURF_METAL, false, &top);
+}
+
+static void buildNorthPlaza() {
+    // Start the transition before the old boundary so the extension feels connected to the original block.
+    float y = SURFACE_EPS;
+    overlay(-8.8f, 58, 8.8f, 148, y, hexc(0x8e877c), MAT_PAVERS);
+    for (float z = 62; z < 148; z += 8) {
+        overlay(-8.8f, z, 8.8f, z + 0.16f, y + SURFACE_STEP, hexc(0xb0aaa0), MAT_PLAIN);
+    }
+    overlay(-0.12f, 58, 0.12f, 148, y + SURFACE_STEP * 2, hexc(0x6f6b65), MAT_PLAIN);
+
+    // The entry marker is close enough to be visible from the original play area.
+    Col arch = hexc(0x343b38);
+    float entryZ = 64;
+    SM.limb(V3(-4.2f, 0, entryZ), V3(-4.2f, 3.6f, entryZ), 0.12f, 0.12f, V3(1, 0, 0), arch, MAT_METAL);
+    SM.limb(V3(4.2f, 0, entryZ), V3(4.2f, 3.6f, entryZ), 0.12f, 0.12f, V3(1, 0, 0), arch, MAT_METAL);
+    SM.limb(V3(-4.2f, 3.6f, entryZ), V3(4.2f, 3.6f, entryZ), 0.12f, 0.12f, V3(0, 1, 0), arch, MAT_METAL);
+    world.addBox(-4.2f, entryZ, 0, 0.14f, 0.14f, 0, 3.6f, SURF_METAL);
+    world.addBox(4.2f, entryZ, 0, 0.14f, 0.14f, 0, 3.6f, SURF_METAL);
+    signBoard(V3(0, 3.15f, entryZ - 0.14f), V3(1, 0, 0), V3(0, 1, 0), V3(0, 0, -1),
+              7.2f, 0.62f, "NORTH PLAZA", hexc(0x202422), C_WHITE, false);
+    for (int side = -1; side <= 1; side += 2) {
+        plazaBollard(side * 6.8f, 61.5f, 0);
+        plazaBollard(side * 7.6f, 64.7f, 0);
+    }
+
+    // A first pair of low ledges starts the skate line immediately after the transition.
+    ledge(-5.3f, 70.5f, 0, 0.5f, 2.8f, 0, 0.3f, hexc(0x99948b), MAT_GRANITE);
+    ledge(5.3f, 75.0f, 0, 0.5f, 2.8f, 0, 0.3f, hexc(0x99948b), MAT_GRANITE);
+
+    // Main island: reachable quickly from the original block, with several ways through it.
+    float deckTop = 0.44f;
+    Col deck = hexc(0x9e9990), deckTopCol = hexc(0xaaa59d);
+    solidBox(0, 90.5f, 0, 3.8f, 4.5f, 0, deckTop, deck, MAT_GRANITE,
+             SURF_CONCRETE, false, &deckTopCol);
+    edgeRails(0, 90.5f, 0, 3.8f, 4.5f, deckTop, RK_LEDGE, false);
+    stairs(0, 85.1f, 0, 2.4f, 4, 0.11f, 0.45f, 0, deck, MAT_GRANITE, true);
+    kicker(0, 96.2f, PI, 2.4f, 1.2f, deckTop, 0, hexc(0x8b8175), MAT_CONCRETE,
+           SURF_CONCRETE);
+    world.addGap("NORTH PLAZA STAIRS", 450, 0, 85.1f, 0, 2.2f, 1.4f, deckTop + 0.08f);
+
+    // Mid-plaza lines alternate sides so a run naturally carries the player deeper into the space.
+    ledge(-5.3f, 106.0f, 0, 0.48f, 4.2f, 0, 0.28f, hexc(0xa29c92), MAT_CONCRETE);
+    handrail(V3(3.8f, 0.42f, 109), V3(3.8f, 0.42f, 119), true, C_IRON, 1.4f);
+    ledge(5.3f, 123.5f, 0, 0.48f, 4.2f, 0, 0.28f, hexc(0xa29c92), MAT_CONCRETE);
+    handrail(V3(-4.2f, 0.42f, 131), V3(4.2f, 0.42f, 131), true, C_IRON, 1.4f);
+
+    // Far end stays open, but has a pair of banks and planters as a visual/gameplay destination.
+    kicker(-5.6f, 140.0f, 0, 1.45f, 1.4f, 0.62f, 0, hexc(0x9d7657), MAT_BRICKBANK,
+           SURF_BRICK);
+    kicker(5.6f, 140.0f, 0, 1.45f, 1.4f, 0.62f, 0, hexc(0x9d7657), MAT_BRICKBANK,
+           SURF_BRICK);
+
+    for (int side = -1; side <= 1; side += 2) {
+        float x = side * 6.6f;
+        Col soil = hexc(0x594838);
+        for (float z : {79.5f, 116.0f, 144.0f}) {
+            solidBox(x, z, 0, 1.05f, 1.05f, 0, 0.4f, hexc(0x85817a), MAT_GRANITE,
+                     SURF_CONCRETE, false, &soil);
+            edgeRails(x, z, 0, 1.05f, 1.05f, 0.4f, RK_LEDGE, false);
+            tree(x, z, 0.4f, 0.68f);
+        }
+    }
+
+    // Dense sidewalk dressing ties the plaza back into the surrounding city.
+    cityBench(-11.4f, 67.5f, 0, SH);
+    cityBench(11.4f, 88.0f, PI, SH);
+    cityBench(-11.4f, 111.0f, 0, SH);
+    cityBench(11.4f, 134.0f, PI, SH);
+    bikeRack(11.8f, 72.5f, 0, SH);
+    bikeRack(-11.8f, 126.0f, 0, SH);
+    utilityBox(-12.2f, 83.0f, PI / 2, SH, hexc(0x315a42));
+    utilityBox(12.2f, 108.0f, -PI / 2, SH, hexc(0x4d5960));
+    newspaperBox(-11.7f, 61.0f, 0, SH, hexc(0xb62824));
+    newspaperBox(-11.1f, 61.0f, 0, SH, hexc(0x27589c));
+    newspaperBox(11.8f, 121.0f, 0, SH, hexc(0xd1b52d));
+    trashPile(-13.0f, 74.0f, SH);
+    trashPile(13.3f, 99.0f, SH);
+    trashPile(-13.0f, 137.0f, SH);
+
+    // Break up the long blank east wall and continue the storefront rhythm into the extension.
+    signBoard(V3(15.84f, 2.7f, 79), V3(0, 0, 1), V3(0, 1, 0), V3(-1, 0, 0),
+              5.8f, 0.72f, "COFFEE", hexc(0x6b2a21), hexc(0xf0dcc0), false);
+    signBoard(V3(15.84f, 2.5f, 96), V3(0, 0, 1), V3(0, 1, 0), V3(-1, 0, 0),
+              5.2f, 0.62f, "MARKET", hexc(0x1e5738), C_WHITE, false);
+    signBoard(V3(15.84f, 2.8f, 116), V3(0, 0, 1), V3(0, 1, 0), V3(-1, 0, 0),
+              6.4f, 0.72f, "ARCADE", hexc(0x243b74), hexc(0xffe15a), true);
+    signBoard(V3(15.84f, 2.6f, 137), V3(0, 0, 1), V3(0, 1, 0), V3(-1, 0, 0),
+              5.8f, 0.62f, "DINER", hexc(0xb32727), C_WHITE, false);
+
+    // Small pavement marks and clutter keep the large open floor from reading as a featureless slab.
+    for (float z : {69.f, 88.f, 112.f, 136.f}) {
+        overlay(-7.8f, z, -6.6f, z + 0.08f, y + SURFACE_STEP * 3, hexc(0x6e6962), MAT_PLAIN);
+        overlay(6.4f, z + 2.2f, 7.7f, z + 2.28f, y + SURFACE_STEP * 3, hexc(0x6e6962), MAT_PLAIN);
+    }
+}
+
+
+static void buildOuterSpots() {
+    // The street mesh and building facades already continue well past the original invisible bounds.
+    // Populate those corridors so the extra space feels like part of the level instead of empty asphalt.
+    ledge(-11.5f, 86, 0, 0.45f, 3.4f, SH, 0.45f, hexc(0xa39e95), MAT_GRANITE);
+    handrail(V3(11.6f, SH + 0.46f, 82), V3(11.6f, SH + 0.46f, 95), true, C_IRON, 1.6f);
+    kicker(12.4f, 104, 0, 1.25f, 1.35f, 0.7f);
+    ledge(-11.5f, 116, 0, 0.42f, 3.8f, SH, 0.35f, hexc(0xb0aba2), MAT_CONCRETE);
+    ledge(11.7f, 128, 0, 0.5f, 2.8f, SH, 0.5f, hexc(0x8f8a82), MAT_GRANITE);
+    quarterPipe(-11.5f, 143, 0, 1.7f, 2.8f, 1.5f, 0.55f);
+
+    ledge(84, -9.6f, 0, 3.4f, 0.42f, SH, 0.45f, hexc(0xa39e95), MAT_GRANITE);
+    handrail(V3(96, SH + 0.48f, 9.6f), V3(109, SH + 0.48f, 9.6f), true, C_IRON, 1.6f);
+    kicker(121, -9.6f, PI / 2, 1.25f, 1.35f, 0.7f);
+
+    ledge(-84, 9.6f, 0, 3.2f, 0.42f, SH, 0.38f, hexc(0x9a968f), MAT_GRANITE);
+    float westTop = stairs(-100, -9.6f, PI / 2, 1.35f, 5, 0.18f, 0.4f, SH,
+                           hexc(0xa39e95), MAT_GRANITE, true);
+    world.addGap("WEST SIDE STAIRS", 350, -100, -9.6f, PI / 2, 1.3f, 1.2f, westTop + 0.05f);
+    kicker(-121, 9.6f, -PI / 2, 1.25f, 1.35f, 0.7f);
+
+    for (float z = 84; z <= 140; z += 28) {
+        streetLamp(-9.7f, z, SH, PI / 2);
+        streetLamp(9.7f, z + 12, SH, -PI / 2);
+    }
+    for (float x = -124; x <= 124; x += 28) {
+        if (std::fabs(x) < 72) continue;
+        streetLamp(x, -7.6f, SH, 0);
+    }
+
+    hydrant(12.6f, 137, SH, false);
+    tree(-12.2f, 101, SH, 0.8f);
+    tree(12.7f, 115, SH, 0.8f);
+    pigeonSpots.push_back(V3(-12, SH, 92));
+    pigeonSpots.push_back(V3(102, SH, -10));
+    pigeonSpots.push_back(V3(-108, SH, 10));
+
+    npcPaths.push_back({{V3(-12.8f, SH, 74), V3(-12.8f, SH, 146)}, false});
+    npcPaths.push_back({{V3(12.8f, SH, 146), V3(12.8f, SH, 74)}, false});
+    npcPaths.push_back({{V3(74, SH, -10.3f), V3(126, SH, -10.3f)}, false});
+    npcPaths.push_back({{V3(-126, SH, 10.3f), V3(-74, SH, 10.3f)}, false});
+}
+
 static void parkedCars() {
     Col cab = hexc(0xf2c318);
     Col cols[] = {hexc(0x1b1b1d), hexc(0x7a1f22), hexc(0x9ca3a8), hexc(0x274a78), hexc(0x2e4a2e), hexc(0xd8d4c8)};
@@ -3915,6 +4115,8 @@ static void parkedCars() {
         {22, 5.7f, PI / 2, 0, 0}, {36, 5.7f, PI / 2, 1, 1}, {50, 5.7f, PI / 2, 3, 5}, {62, 5.7f, PI / 2, 0, 0},
         {-7.7f, -48, 0, 1, 2}, {-7.7f, -36, 0, 0, 0}, {7.7f, 30, 0, 2, 0}, {7.7f, 46, 0, 1, 4}, {-7.7f, 40, 0, 0, 0},
         {-7.7f, 54, 0, 3, 5}, {7.7f, -20, 0, 1, 1}, {-40, -63.8f, PI / 2, 0, 0}, {-24, -63.8f, PI / 2, 1, 3}, {26, -63.8f, PI / 2, 2, 0}, {46, -63.8f, PI / 2, 0, 0},
+        {92, -5.7f, PI / 2, 2, 0}, {112, 5.7f, PI / 2, 1, 4},
+        {-92, -5.7f, PI / 2, 0, 0}, {-112, 5.7f, PI / 2, 3, 5},
     };
     for (const P& c : cars) parkedCar(c.x, c.z, c.yaw, c.type, c.type == 0 ? cab : cols[c.col]);
     letterPos.push_back(V3(22, 2.9f, 5.7f));   // 'K' over a parked cab
@@ -5216,12 +5418,17 @@ static V3 SPAWN_POS(3.0f, 0.0f, 22.0f);
 static float SPAWN_YAW = PI;
 
 static void buildLevel() {
+    // Level-local state must restart with the level for deterministic rebuilds.
+    // Adapted from adeism/OSkate arena/01a0cbce-oskate.
+    shopIdx = 0;
     buildStreets();
     buildNW();
     buildPlaza();
     buildCourt();
     buildSW();
     buildSE();
+    buildNorthPlaza();
+    buildOuterSpots();
     parkedCars();
     buildPromenade();
     buildExtension();
@@ -5300,7 +5507,21 @@ struct Records { long long bestScore = 0, bestSession = 0, bestCombo = 0; };
 static Records REC;
 static void saveGame();
 struct AudioParams { float roll = 0, rollPitch = 1, rollSurf = 0, grind = 0, grindMetal = 1, water = 0, wind = 0, rain = 0; };
-static AudioParams aud;
+static AudioParams aud;  // game-thread staging values
+
+// Publish a coherent copy to the audio callback instead of racing on individual fields.
+// Adapted from intra-secdsm/OpusSkate commit 62815a0.
+struct AudioSnapshot { AudioParams params; bool musicOn = true; };
+static AudioSnapshot publishedAudio;
+static std::mutex audioParamsMutex;
+static void publishAudio(const AudioParams& params, bool musicEnabled) {
+    std::lock_guard<std::mutex> lock(audioParamsMutex);
+    publishedAudio = {params, musicEnabled};
+}
+static AudioSnapshot audioSnapshot() {
+    std::lock_guard<std::mutex> lock(audioParamsMutex);
+    return publishedAudio;
+}
 
 // ----------------------------------------------------------------------------
 // Tricks
@@ -5374,6 +5595,26 @@ struct Input {
     bool grindPress = false, manualPress = false;
 };
 
+// Keep one-shot inputs until a fixed 120 Hz physics tick consumes them.
+// Adapted from intra-secdsm/OpusSkate commit 62815a0.
+static void queuePresses(Input& pending, const Input& frame, bool playing) {
+    if (!playing) { pending = Input(); return; }
+    pending.olliePress |= frame.olliePress;
+    pending.flipPress |= frame.flipPress;
+    pending.grabPress |= frame.grabPress;
+    pending.grindPress |= frame.grindPress;
+    pending.manualPress |= frame.manualPress;
+}
+
+static void takePresses(Input& pending, Input& tick) {
+    tick.olliePress = pending.olliePress;
+    tick.flipPress = pending.flipPress;
+    tick.grabPress = pending.grabPress;
+    tick.grindPress = pending.grindPress;
+    tick.manualPress = pending.manualPress;
+    pending = Input();
+}
+
 enum PState { ST_RIDE = 0, ST_AIR, ST_GRIND, ST_MANUAL, ST_BAIL };
 
 static const float GRAV = 12.5f;
@@ -5404,6 +5645,7 @@ struct Player {
     // grind
     int rail = -1, railDir = 1, grindIdx = 0, lastRail = -1;
     float railT = 0, railSpeed = 0, grindTime = 0, railCooldown = 0, grindBuffer = 0, grindYaw = 0;
+    float railDismountSpinLock = 0;
     float bal = 0, balV = 0, balSeed = 0;
     bool grindFakie = false;
     // manual
@@ -5530,13 +5772,33 @@ struct Player {
         if (bailT > 1.8f) respawnAfterBail();
     }
     void respawnAfterBail() {
-        V3 p = bodyPos;
+        V3 p = state == ST_BAIL ? bodyPos : pos;
         if (p.z < RIVER_EDGE_Z + 0.8f) { p.z = RIVER_EDGE_Z + 3.0f; p.y = SH + 1.0f; }
-        p.y = world.ground(p.x, p.z, std::max(p.y, 0.f) + 0.5f).h;
+        for (const Pool& pool : world.pools) {
+            float dx = p.x - pool.x, dz = p.z - pool.z;
+            float d2 = dx * dx + dz * dz;
+            if (d2 >= pool.r * pool.r) continue;
+            float d = std::sqrt(d2);
+            V3 out = d > 0.05f ? V3(dx / d, 0, dz / d) : fwdYaw(yaw);
+            p.x = pool.x + out.x * (pool.r + 1.2f);
+            p.z = pool.z + out.z * (pool.r + 1.2f);
+            p.y = SH + 1.0f;
+        }
+        GroundHit g = world.ground(p.x, p.z, std::max(p.y, 0.f) + 0.5f);
+        if (g.surf == SURF_WATER) {
+            p = SPAWN_POS;
+            g = world.ground(p.x, p.z, p.y + 1.0f);
+        }
+        p.y = g.h;
         // never respawn perched on a thin thing: drop to the lowest nearby surface if on a rail blocker
         V3 v(0, 0, 0);
         world.collideWalls(p, v, 0.35f, p.y + STEP_UP, 1.6f);
-        p.y = world.ground(p.x, p.z, p.y + 0.3f).h;
+        g = world.ground(p.x, p.z, p.y + 0.3f);
+        if (g.surf == SURF_WATER) {
+            p = SPAWN_POS;
+            g = world.ground(p.x, p.z, p.y + 1.0f);
+        }
+        p.y = g.h;
         float y = yaw;
         state = ST_RIDE;
         pos = p;
@@ -5545,6 +5807,7 @@ struct Player {
         spinAccum = spinRate = 0;
         flipIdx = grabIdx = -1;
         rail = -1;
+        railDismountSpinLock = 0;
         crouching = false;
         landSquash = 0;
     }
@@ -5766,7 +6029,6 @@ struct Player {
         grabIdx = -1;
         grabBlend = 0;
         spinRate = 0;
-        qpAir = false;
         landSquash = std::min(1.f, 0.35f + impact * 0.06f);
         sfx(impact > 9 ? SFX_LAND_HARD : SFX_LAND, std::min(1.f, 0.4f + impact * 0.07f));
         spawnDust(pos, impact > 6 ? 10 : 4);
@@ -5795,8 +6057,8 @@ struct Player {
                 if (late) { ollie(sat(crouchT / 0.32f), false); return; }
             }
         }
-        // spins
-        float spinIn = (in.left ? 1.f : 0.f) - (in.right ? 1.f : 0.f);
+        // spins; after a directional rail ollie, give the side-hop a moment before A/D becomes spin input
+        float spinIn = railDismountSpinLock > 0 ? 0.f : (in.left ? 1.f : 0.f) - (in.right ? 1.f : 0.f);
         if (spinIn != 0) spinRate = approach(spinRate, spinIn * SPIN_MAX, SPIN_ACC * dt);
         else spinRate = approach(spinRate, 0, SPIN_ACC * 1.5f * dt);
         yaw += spinRate * dt;
@@ -5867,7 +6129,7 @@ struct Player {
     bool tryGrind(const Input& in);
     void startGrind(int r, float t, int dir, float spd, const Input& in);
     void updateGrind(const Input& in, float dt);
-    void exitGrind(bool popUp);
+    void exitGrind(bool popUp, float lateral = 0.f);
     void update(const Input& in, float dt);
 };
 static Player P;
@@ -5948,12 +6210,17 @@ void Player::startGrind(int ri, float t, int dir, float spd, const Input& in) {
     crouching = false;
 }
 
-void Player::exitGrind(bool popUp) {
+void Player::exitGrind(bool popUp, float lateral) {
     const Rail& r = world.rails[rail];
     lastRail = rail;
     railCooldown = 0.3f;
     V3 md = r.dir * (float)railDir;
-    vel = md * railSpeed;
+    V3 side = cross(V3(0, 1, 0), md);
+    vel = md * railSpeed + side * (lateral * 3.8f);
+    if (lateral != 0) {
+        pos += side * (lateral * 0.14f);
+        railDismountSpinLock = 0.16f;
+    }
     if (!popUp) vel.y += 1.4f;
     yaw = yawOf(V3(md.x, 0, md.z)) + (grindFakie ? PI : 0);
     state = ST_AIR;
@@ -5981,7 +6248,12 @@ void Player::updateGrind(const Input& in, float dt) {
     bal += balV * dt;
     combo.addRunning((metal ? 130.f : 110.f) * dt);
     if (std::fabs(bal) >= 1.f) { bail(bal > 0 ? "FELL OFF THE RAIL" : "LOST YOUR BALANCE"); return; }
-    if (in.olliePress) { exitGrind(true); ollie(0.55f, true); return; }
+    if (in.olliePress) {
+        float lateral = (in.left ? 1.f : 0.f) - (in.right ? 1.f : 0.f);
+        exitGrind(true, lateral);
+        ollie(0.55f, true);
+        return;
+    }
     // sparks off metal
     if (metal) {
         sparkAcc += dt * (20.f + railSpeed * 6.f);
@@ -6022,6 +6294,7 @@ void Player::update(const Input& in, float dt) {
     }
     if (pos.y < -30.f) { respawnAfterBail(); return; }
     railCooldown = std::max(0.f, railCooldown - dt);
+    railDismountSpinLock = std::max(0.f, railDismountSpinLock - dt);
     grindBuffer = std::max(0.f, grindBuffer - dt);
     manualBuffer = std::max(0.f, manualBuffer - dt);
     landSquash = std::max(0.f, landSquash - dt * 2.5f);
@@ -6597,8 +6870,12 @@ static void initNpcs() {
 static const char* CHEERS[] = {"NICE!", "SICK!", "WHOA!", "YO! DO THAT AGAIN!", "THAT WAS DOPE!", "RESPECT!"};
 static const char* ANGRY[] = {"HEY! I'M WALKIN' HERE!", "WATCH IT, KID!", "GET OFF THE SIDEWALK!", "OW! MY COFFEE!"};
 
+// Cosmetic RNG streams live at file scope so replay/tests can rewind the whole world.
+// Adapted from adeism/OSkate arena/01a0cbce-oskate.
+static Rng npcRng(4242);
+
 static void updateNpcs(float dt, Player& pl, long long& lastBankSeen) {
-    static Rng r(4242);
+    Rng& r = npcRng;
     bool cheerEvent = false;
     if (pl.score != lastBankSeen) { cheerEvent = pl.score - lastBankSeen >= 800; lastBankSeen = pl.score; }
     if (cheerEvent) {   // the closest onlooker always reacts to a big line
@@ -6750,8 +7027,10 @@ static void initPigeons() {
             pigeons.push_back(p);
         }
 }
+static Rng pigeonRng(99);   // cosmetic-only; kept rewindable for deterministic replay
+
 static void updatePigeons(float dt, const Player& pl) {
-    static Rng r(99);
+    Rng& r = pigeonRng;
     bool flock = false;
     for (auto& p : pigeons) {
         p.t += dt;
@@ -7458,6 +7737,8 @@ static void audioCallback(void*, Uint8* stream, int bytes) {
     int frames = bytes / (int)(sizeof(float) * 2);
     const float dt = 1.f / AR;
     const float bpm = 88.f, stepDur = 60.f / bpm / 4.f;
+    AudioSnapshot snap = audioSnapshot();
+    const AudioParams& params = snap.params;
     for (int i = 0; i < frames; i++) {
         float mix = 0;
         // one-shots
@@ -7479,7 +7760,7 @@ static void audioCallback(void*, Uint8* stream, int bytes) {
         LS.metal += (aud.grindMetal - LS.metal) * 0.002f;
         float n = anoise();
         if (LS.roll > 0.001f) {
-            float cut = 250.f + 700.f * std::min(aud.rollPitch, 1.6f);
+            float cut = 250.f + 700.f * std::min(params.rollPitch, 1.6f);
             float r = LS.rollLp2.lp(LS.rollLp1.lp(n, lpA(cut)), lpA(cut * 1.4f));
             float rumble = std::sin((float)(TAU * 55.0 * LS.t)) * (0.4f + 0.6f * r);
             mix += (r * 1.6f + rumble * 0.12f) * LS.roll;
@@ -7499,7 +7780,7 @@ static void audioCallback(void*, Uint8* stream, int bytes) {
         }
         mix += LS.ambLp.lp(n, lpA(140)) * 0.06f;   // distant traffic rumble
         // music
-        if (musicOn) {
+        if (snap.musicOn) {
             long st = (long)(LS.t / stepDur);
             double sw = (st % 2) ? stepDur * 0.14 : 0.0;   // swing
             if (st != LS.step && LS.t >= st * stepDur + sw) { LS.step = st; musicStep(st); }
@@ -7563,6 +7844,8 @@ static void popup(const std::string& s, Col c, float scale, float life) {
     if (popups.size() > 6) popups.erase(popups.begin());
     popups.push_back({s, c, scale, 0, life});
 }
+static bool webMobileMode = false;
+
 static std::string fmtNum(long long v) {
     std::string s = std::to_string(v < 0 ? -v : v), o;
     int c = 0;
@@ -7639,6 +7922,7 @@ static const char* HELP_LINES[] = {
     "S / DOWN .......... BRAKE",
     "A D / LEFT RIGHT .. STEER / SPIN / BALANCE",
     "SPACE ............. OLLIE (HOLD = HIGHER)",
+    "SPACE + A/D ON RAIL  SIDE-HOP OFF THE RAIL",
     "J or Z + DIR ...... FLIP TRICKS",
     "K or X + DIR ...... GRABS (HOLD, LET GO TO LAND)",
     "L or C + DIR ...... GRIND / SLIDE NEAR RAILS",
@@ -7737,7 +8021,7 @@ static void drawMiniMap(const Player& pl) {
 }
 
 static void drawGameHud(const Player& pl, float time, float sessionLeft, bool session, int helpPage, float helpAlpha, const M4& vp, V3 cam, bool showFps, float fps) {
-    bool showHelp = helpPage > 0;
+    bool showHelp = !webMobileMode && helpPage > 0;
     float U = hud.U;
     if (showMap) drawMiniMap(pl);
     // score
@@ -7773,7 +8057,11 @@ static void drawGameHud(const Player& pl, float time, float sessionLeft, bool se
         hud.text(sx, sy - h + 6 * U, sc, b.text, Col(20, 20, 20), a, 1, false);
     }
     // combo
-    float cy = hud.H - 120 * U;
+    // Touch controls occupy the bottom of mobile screens. Keep combo/trick
+    // feedback above them so it stays readable while playing.
+    float cy = webMobileMode
+        ? hud.H - std::min(280.f * U, hud.H * 0.58f)
+        : hud.H - 120 * U;
     if (pl.combo.active()) {
         std::string t = pl.combo.text(200);
         float sc = 2 * U;
@@ -8708,7 +8996,7 @@ struct Camera {
     int mode = 0;
 };
 static Camera cam;
-static void updateCamera(float dt, const Player& pl) {
+static void updateCamera(float dt, const Player& pl, V3 visualPos) {
     V3 hv(pl.vel.x, 0, pl.vel.z);
     float spd = len(hv);
     float targetYaw = cam.yaw;
@@ -8720,7 +9008,7 @@ static void updateCamera(float dt, const Player& pl) {
     if (pl.state == ST_AIR && pl.qpAir) { dist += 2.2f; height -= 0.5f; }
     if (cam.mode == 1) { dist += 4.f; height += 2.6f; }
     if (cam.mode == 2) { dist = 2.4f; height = 0.55f; fov = 96.f; }
-    V3 focus = (pl.state == ST_BAIL ? pl.bodyPos : pl.pos) + V3(0, 1.05f, 0);
+    V3 focus = (pl.state == ST_BAIL ? pl.bodyPos : visualPos) + V3(0, 1.05f, 0);
     V3 f = cam.focus;
     f.x = damp(f.x, focus.x, 16.f, dt);
     f.z = damp(f.z, focus.z, 16.f, dt);
@@ -8870,8 +9158,26 @@ static SDL_Scancode keyName(const std::string& k) {
     return SDL_SCANCODE_UNKNOWN;
 }
 
+// Keep screenshot failures visible to callers/CI instead of silently succeeding.
+// Adapted from intra-secdsm/OpusSkate commit 62815a0.
+static bool writePpm(const std::string& path, int w, int h, const std::vector<uint8_t>& pixels) {
+    FILE* f = fopen(path.c_str(), "wb");
+    if (!f) {
+        fprintf(stderr, "Could not open screenshot '%s': %s\n", path.c_str(), strerror(errno));
+        return false;
+    }
+    bool ok = fprintf(f, "P6\n%d %d\n255\n", w, h) >= 0;
+    for (int y = h - 1; y >= 0 && ok; --y)
+        ok = fwrite(&pixels[(size_t)y * w * 3], 1, (size_t)w * 3, f) == (size_t)w * 3;
+    int error = ok ? 0 : (errno ? errno : EIO);
+    if (fclose(f) != 0 && !error) error = errno ? errno : EIO;
+    if (error) fprintf(stderr, "Could not write screenshot '%s': %s\n", path.c_str(), strerror(error));
+    return error == 0;
+}
+
 #ifdef __EMSCRIPTEN__
 static Uint8 mobileKeys[SDL_NUM_SCANCODES] = {};
+static SDL_Window* webWindow = nullptr;
 
 extern "C" EMSCRIPTEN_KEEPALIVE void mobile_input(int action, int down) {
     static const SDL_Scancode actions[] = {
@@ -8883,7 +9189,9 @@ extern "C" EMSCRIPTEN_KEEPALIVE void mobile_input(int action, int down) {
         SDL_SCANCODE_J,
         SDL_SCANCODE_K,
         SDL_SCANCODE_L,
-        SDL_SCANCODE_I
+        SDL_SCANCODE_I,
+        SDL_SCANCODE_RETURN,
+        SDL_SCANCODE_T
     };
 
     if (action < 0 || action >= (int)(sizeof(actions) / sizeof(actions[0]))) return;
@@ -8904,6 +9212,15 @@ extern "C" EMSCRIPTEN_KEEPALIVE void mobile_input(int action, int down) {
     e.key.keysym.sym = SDL_GetKeyFromScancode(sc);
     e.key.keysym.mod = KMOD_NONE;
     SDL_PushEvent(&e);
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE void web_resize(int width, int height) {
+    if (!webWindow || width < 1 || height < 1) return;
+    SDL_SetWindowSize(webWindow, width, height);
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE void web_set_mobile(int enabled) {
+    webMobileMode = enabled != 0;
 }
 #endif
 
@@ -8997,6 +9314,9 @@ int main(int argc, char** argv) {
         if (!ctx) { SDL_DestroyWindow(win); win = nullptr; }
     }
     if (!win || !ctx) { fprintf(stderr, "Could not create an OpenGL 3.3 window: %s\n", SDL_GetError()); return 1; }
+#ifdef __EMSCRIPTEN__
+    webWindow = win;
+#endif
     if (!gl.load()) { fprintf(stderr, "Required OpenGL functions are missing.\n"); return 1; }
 #ifndef __EMSCRIPTEN__
     SDL_GL_SetSwapInterval(shotMode ? 0 : 1);
@@ -9033,12 +9353,13 @@ int main(int argc, char** argv) {
     GameMode mode = forceTitle ? GM_TITLE : (startPlaying || shotMode ? GM_PLAY : (startTitle ? GM_TITLE : GM_PLAY));
     bool running = true, session = false, newBest = false;
     bool& showFps = SET.showFps;
-    int helpPage = startHelpPage >= 0 ? startHelpPage : (noHelp ? 0 : 1);   // 0 hidden, 1 controls, 2 trick list
-    float helpTimer = 14.f, sessionLeft = 0, time = 0, fps = 60, ambientT = 8.f;
+    int exitCode = 0;
+    int helpPage = webMobileMode ? 0 : (startHelpPage >= 0 ? startHelpPage : (noHelp ? 0 : 1));   // 0 hidden, 1 controls, 2 trick list
+    float helpTimer = webMobileMode ? -1.f : 14.f, sessionLeft = 0, time = 0, fps = 60, ambientT = 8.f;
     long long sessionBest = REC.bestSession, lastScoreSeen = 0;
     double acc = 0;
     Uint64 prevCounter = SDL_GetPerformanceCounter();
-    Input latched;
+    Input latched, pendingPresses;
     int frame = 0;
     Input lastIn;
     auto startSession = [&]() {
@@ -9255,6 +9576,7 @@ int main(int argc, char** argv) {
         in.olliePress |= latched.olliePress; in.flipPress |= latched.flipPress; in.grabPress |= latched.grabPress;
         in.grindPress |= latched.grindPress; in.manualPress |= latched.manualPress;
         lastIn = in;
+        queuePresses(pendingPresses, in, mode == GM_PLAY);
         latched = Input();
 
         // ---------------------------------------------------------------- simulation
@@ -9264,8 +9586,8 @@ int main(int argc, char** argv) {
             int n = 0;
             while (acc >= step && n < 12) {
                 P.prevPos = P.pos;
+                takePresses(pendingPresses, in);
                 P.update(in, step);
-                in.olliePress = in.flipPress = in.grabPress = in.grindPress = in.manualPress = false;
                 acc -= step;
                 n++;
             }
@@ -9297,13 +9619,19 @@ int main(int argc, char** argv) {
         for (auto& b : bubbles) b.t -= frameDt;
         bubbles.erase(std::remove_if(bubbles.begin(), bubbles.end(), [](const Bubble& b) { return b.t <= 0; }), bubbles.end());
 
+        V3 visualPlayerPos = P.pos;
+        if (mode == GM_PLAY && P.state != ST_BAIL && len(P.pos - P.prevPos) < 1.f) {
+            float alpha = (float)(acc / (1.0 / 120.0));
+            visualPlayerPos = lerp3(P.prevPos, P.pos, sat(alpha));
+        }
+
         // ---------------------------------------------------------------- camera
         if (mode == GM_TITLE) {
             cam.pos = V3(4.f * std::sin(time * 0.07f), 17.f + 2.f * std::sin(time * 0.11f), 26.f + 6.f * std::cos(time * 0.05f));
             cam.look = V3(12.f + 6.f * std::sin(time * 0.04f), 2.f, -30.f);
             cam.fov = 60;
         } else if (mode == GM_PLAY || shotMode) {
-            updateCamera(frameDt, P);
+            updateCamera(frameDt, P, visualPlayerPos);
         }
         if (const char* dc = getenv("CJ_DEBUG_CAM")) {   // free camera for screenshots: px,py,pz,lx,ly,lz[,fov] | npc | pigeon | car
             float a[7] = {0, 10, 0, 0, 0, 10, 64};
@@ -9324,6 +9652,7 @@ int main(int argc, char** argv) {
             for (auto& em : emitters) if (em.kind == EM_FOUNTAIN || em.kind == EM_HYDRANT) w = std::max(w, 1.f - len(em.pos - P.pos) / 22.f);
             aud.water = mode == GM_PLAY ? std::max(0.f, w) * 0.8f : 0.f;
             if (mode != GM_PLAY) { aud.roll = aud.grind = aud.wind = 0; }
+            publishAudio(aud, musicOn);
         }
         if (LIGHT.rain > 0 && mode != GM_PAUSE) spawnRain(frameDt, cam.pos, LIGHT.rain);
         aud.rain = LIGHT.rain * (mode == GM_PAUSE ? 0.4f : 1.f);
@@ -9430,5 +9759,5 @@ int main(int argc, char** argv) {
     SDL_GL_DeleteContext(ctx);
     SDL_DestroyWindow(win);
     SDL_Quit();
-    return 0;
+    return exitCode;
 }
