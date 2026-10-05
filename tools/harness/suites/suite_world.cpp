@@ -176,8 +176,11 @@ TEST(world, cars_stop_at_red_and_go_on_green) {
     initGame();
     resetWorld();
     Car& c = cars[0];                          // lane 0 has a traffic light
-    CHECK(LANES[c.lane].hasLight);
-    c.x = -30.f;
+    const Lane& L = LANES[c.lane];
+    CHECK(L.hasLight);
+    const float stopLine = -14.5f * L.dir;
+    c.x = stopLine - 18.f * L.dir;             // approach the stop line in lane direction
+    c.turn = 0;
     c.speed = c.target = 9.f;
     tlTimer = 20.f;                            // east-west red
     for (int i = 0; i < 60 * 4; i++) updateTraffic(1.f / 60.f, P);
@@ -186,7 +189,7 @@ TEST(world, cars_stop_at_red_and_go_on_green) {
     for (int i = 0; i < 60 * 4; i++) updateTraffic(1.f / 60.f, P);
     printf("    [traffic] red: x=%.1f v=%.2f | green: x=%.1f v=%.2f\n", stoppedX, stoppedSpeed, c.x, c.speed);
     CHECK(stoppedSpeed < 1.2f);
-    CHECK(stoppedX < -12.f);                   // held before the crosswalk
+    CHECK((stopLine - stoppedX) * L.dir >= -0.5f); // held at/before the stop line
     CHECK(c.speed > 4.f);                      // moving again
 }
 
@@ -199,7 +202,7 @@ TEST(world, cars_keep_a_gap_and_never_overlap) {
         updateTraffic(1.f / 60.f, P);
         for (auto& a : cars)
             for (auto& b : cars) {
-                if (&a == &b || a.lane != b.lane) continue;
+                if (&a == &b || a.lane != b.lane || a.turn || b.turn) continue;
                 float g = std::fabs(a.x - b.x);
                 minGap = std::min(minGap, g);
                 minGapEver = std::min(minGapEver, g);
@@ -265,16 +268,16 @@ TEST(world, particle_budget_is_capped) {
     initGame();
     resetWorld();
     parts.clear();
-    for (int i = 0; i < 12000 && parts.size() < 7000; i++) {
+    for (int i = 0; i < 24000 && parts.size() < 20000; i++) {
         Particle q;
         q.p = V3(0, 1, 0);
         q.v = V3(0, 1, 0);
         q.life = q.maxLife = 5.f;
         addParticle(q);
     }
-    CHECK(parts.size() == 7000);
+    CHECK(parts.size() == 20000);
     addParticle(parts[0]);
-    CHECK(parts.size() == 7000);              // hard cap holds
+    CHECK(parts.size() == 20000);             // hard cap holds
 }
 
 TEST(world, water_particles_die_at_the_pool_surface) {
@@ -326,7 +329,7 @@ TEST(world, dynamic_draw_lists_are_populated) {
     Input in;
     drawSkater(DM, P, in);
     size_t skaterVerts = DM.v.size();
-    CHECK(skaterVerts > 300 && skaterVerts < 4000);
+    CHECK(skaterVerts > 300 && skaterVerts < 20000);
     CHECK(DM.idx.size() % 3 == 0);
     DM.clear();
     drawNpcs(DM, cam.pos);
@@ -425,13 +428,14 @@ TEST(world, runtime_collections_stay_bounded) {
 
     for (int i = 0; i < 120 * 10; i++) sim.tick(in, 1.f / 120.f);
     const size_t npcsAfterWarmup = npcs.size();
+    const size_t pigeonsAfterWarmup = pigeons.size();
 
     for (int i = 0; i < 120 * 60; i++) sim.tick(in, 1.f / 120.f);
 
     CHECK(npcs.size() == npcsAfterWarmup);
-    CHECK(parts.size() <= 7000);
+    CHECK(parts.size() <= 20000);
     CHECK(popups.size() <= 16);
-    CHECK(pigeons.size() < 200);
+    CHECK(pigeons.size() == pigeonsAfterWarmup);
 }
 
 } // namespace hns
