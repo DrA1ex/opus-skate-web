@@ -7788,12 +7788,12 @@ static void audioCallback(void*, Uint8* stream, int bytes) {
             v.pos += v.rate;
         }
         // smoothed loop parameters
-        LS.roll += (aud.roll - LS.roll) * 0.0008f;
-        LS.grind += (aud.grind - LS.grind) * 0.004f;
-        LS.wind += (aud.wind - LS.wind) * 0.0005f;
-        LS.water += (aud.water - LS.water) * 0.0005f;
-        LS.rain += (aud.rain - LS.rain) * 0.0002f;
-        LS.metal += (aud.grindMetal - LS.metal) * 0.002f;
+        LS.roll += (params.roll - LS.roll) * 0.0008f;
+        LS.grind += (params.grind - LS.grind) * 0.004f;
+        LS.wind += (params.wind - LS.wind) * 0.0005f;
+        LS.water += (params.water - LS.water) * 0.0005f;
+        LS.rain += (params.rain - LS.rain) * 0.0002f;
+        LS.metal += (params.grindMetal - LS.metal) * 0.002f;
         float n = anoise();
         if (LS.roll > 0.001f) {
             float cut = 250.f + 700.f * std::min(params.rollPitch, 1.6f);
@@ -9697,11 +9697,11 @@ int main(int argc, char** argv) {
             float w = 0;
             for (auto& em : emitters) if (em.kind == EM_FOUNTAIN || em.kind == EM_HYDRANT) w = std::max(w, 1.f - len(em.pos - P.pos) / 22.f);
             aud.water = mode == GM_PLAY ? std::max(0.f, w) * 0.8f : 0.f;
+            aud.rain = LIGHT.rain * (mode == GM_PAUSE ? 0.4f : 1.f);
             if (mode != GM_PLAY) { aud.roll = aud.grind = aud.wind = 0; }
             publishAudio(aud, musicOn);
         }
         if (LIGHT.rain > 0 && mode != GM_PAUSE) spawnRain(frameDt, cam.pos, LIGHT.rain);
-        aud.rain = LIGHT.rain * (mode == GM_PAUSE ? 0.4f : 1.f);
         updateParticles(mode == GM_PAUSE ? 0.f : frameDt, cam.pos);
 
         // ---------------------------------------------------------------- render
