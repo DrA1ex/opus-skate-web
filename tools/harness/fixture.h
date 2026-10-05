@@ -55,6 +55,11 @@ inline void resetWorld() {
     initNpcs();
     initPigeons();
     initTraffic();
+    // Traffic priming itself advances the signal/vehicle simulation, so the
+    // signal clock must be reset before that tick. Otherwise a reset inherits
+    // the previous test/run's traffic phase and replay starts from a different
+    // car state even with identical inputs.
+    tlTimer = 0.f;
     primeEntities();
     tlTimer = 0.f;
     parts.clear();
