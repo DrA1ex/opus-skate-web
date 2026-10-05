@@ -28,12 +28,18 @@
 //     R reset  H help  M music  V camera  N time of day  G graphics  T 2-minute session
 //     Esc menu  F11 fullscreen
 // ============================================================================
+#ifdef __EMSCRIPTEN__
+#include <SDL2/SDL.h>
+#include <GLES3/gl3.h>
+#include <emscripten.h>
+#else
 #if __has_include(<SDL2/SDL.h>)
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_opengl.h>
 #else
 #include <SDL.h>
 #include <SDL_opengl.h>
+#endif
 #endif
 #include <cstdio>
 #include <cstdlib>
@@ -669,7 +675,7 @@ out vec3 vPos; out vec3 vNrm; out vec3 vCol; flat out int vMat; out vec3 vTex; o
 invariant gl_Position;
 void main(){
   vPos = aPos; vNrm = aNrm; vCol = aCol; vMat = int(aMat + 0.5); vTex = aTex; vNrmO = aTexN.xyz;
-  gl_ClipDistance[0] = dot(vec4(aPos,1.0), uClip);
+  vClip = dot(vec4(aPos,1.0), uClip);
   gl_Position = uVP * vec4(aPos, 1.0);
 }
 )";
@@ -896,6 +902,7 @@ in vec3 vPos; in vec3 vNrm; in vec3 vCol; flat in int vMat;
 uniform float uDynamic;
 layout(location=0) out vec4 oNrm;
 void main(){
+  if(vClip < 0.0) discard;
   vec3 n = normalize(vNrm);
   if(!gl_FrontFacing) n = -n;
   if((vMat == 11 || vMat == 29) && fenceCut(vPos, n, vMat)) discard;
@@ -1510,14 +1517,22 @@ void main(){
 }
 )";
 
-static const char* SHADOW_VS = R"(#version 330 core
+static const char* SHADOW_VS = R"(#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+precision highp sampler2DShadow;
 layout(location=0) in vec3 aPos;
 layout(location=3) in float aMat;
 uniform mat4 uLightVP;
 out vec3 vPos; flat out int vMat;
 void main(){ vPos = aPos; vMat = int(aMat+0.5); gl_Position = uLightVP * vec4(aPos,1.0); }
 )";
-static const char* SHADOW_FS = R"(#version 330 core
+static const char* SHADOW_FS = R"(#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+precision highp sampler2DShadow;
 in vec3 vPos; flat in int vMat;
 void main(){
   if((vMat & 64) != 0) discard;    // shop interiors sit inside closed walls
@@ -1532,7 +1547,11 @@ void main(){
 }
 )";
 
-static const char* SKY_VS = R"(#version 330 core
+static const char* SKY_VS = R"(#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+precision highp sampler2DShadow;
 out vec2 vNdc;
 void main(){ vec2 p = vec2((gl_VertexID<<1)&2, gl_VertexID&2); vNdc = p*2.0-1.0; gl_Position = vec4(vNdc, 0.9999, 1.0); }
 )";
@@ -1614,7 +1633,11 @@ void main(){
 )";
 
 // Water: river, fountain pool, puddles. aMat: 0 river, 1 pool, 2 puddle
-static const char* WATER_VS = R"(#version 330 core
+static const char* WATER_VS = R"(#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+precision highp sampler2DShadow;
 layout(location=0) in vec3 aPos;
 layout(location=1) in vec3 aNrm;
 layout(location=2) in vec3 aCol;
@@ -1726,7 +1749,11 @@ void main(){
 )";
 
 // Billboard particles. aCol.a < 0: emissive (additive) with intensity -a, otherwise lit and alpha-blended.
-static const char* PART_VS = R"(#version 330 core
+static const char* PART_VS = R"(#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+precision highp sampler2DShadow;
 layout(location=0) in vec3 aPos; layout(location=1) in vec2 aUV; layout(location=2) in vec4 aCol;
 uniform mat4 uVP; out vec2 vUV; out vec4 vCol; out vec3 vPos; out float vW;
 void main(){ vUV = aUV; vCol = aCol; vPos = aPos; gl_Position = uVP * vec4(aPos,1.0); vW = gl_Position.w; }
@@ -2037,12 +2064,20 @@ void main(){
 )";
 
 // 2D HUD: textured (font atlas) or solid quads
-static const char* HUD_VS = R"(#version 330 core
+static const char* HUD_VS = R"(#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+precision highp sampler2DShadow;
 layout(location=0) in vec2 aPos; layout(location=1) in vec2 aUV; layout(location=2) in vec4 aCol;
 uniform vec2 uScreen; out vec2 vUV; out vec4 vCol;
 void main(){ vUV = aUV; vCol = aCol; gl_Position = vec4(aPos.x/uScreen.x*2.0-1.0, 1.0-aPos.y/uScreen.y*2.0, 0.0, 1.0); }
 )";
-static const char* HUD_FS = R"(#version 330 core
+static const char* HUD_FS = R"(#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+precision highp sampler2DShadow;
 in vec2 vUV; in vec4 vCol; uniform sampler2D uFont; out vec4 fragColor;
 void main(){
   float a = vUV.x < 0.0 ? 1.0 : texture(uFont, vUV).r;
@@ -2051,7 +2086,7 @@ void main(){
 }
 )";
 
-static GLuint compileShader(GLenum type, const std::string& src) {
+static GLuint compileShader(const char* name, GLenum type, const std::string& src) {
     GLuint s = gl.CreateShader(type);
     const char* p = src.c_str();
     gl.ShaderSource(s, 1, &p, nullptr);
@@ -2060,20 +2095,22 @@ static GLuint compileShader(GLenum type, const std::string& src) {
     gl.GetShaderiv(s, GL_COMPILE_STATUS, &ok);
     if (!ok) {
         char log[4096]; gl.GetShaderInfoLog(s, sizeof(log), nullptr, log);
-        fprintf(stderr, "Shader compile error:\n%s\n", log);
+        fprintf(stderr, "%s %s shader compile error:\n%s\n", name,
+                type == GL_VERTEX_SHADER ? "vertex" : "fragment", log);
     }
     return s;
 }
-static GLuint makeProgram(const std::string& vs, const std::string& fs) {
+static GLuint makeProgram(const char* name, const std::string& vs, const std::string& fs) {
     GLuint p = gl.CreateProgram();
-    GLuint a = compileShader(GL_VERTEX_SHADER, vs), b = compileShader(GL_FRAGMENT_SHADER, fs);
+    GLuint a = compileShader(name, GL_VERTEX_SHADER, vs);
+    GLuint b = compileShader(name, GL_FRAGMENT_SHADER, fs);
     gl.AttachShader(p, a); gl.AttachShader(p, b);
     gl.LinkProgram(p);
     GLint ok = 0;
     gl.GetProgramiv(p, GL_LINK_STATUS, &ok);
     if (!ok) {
         char log[4096]; gl.GetProgramInfoLog(p, sizeof(log), nullptr, log);
-        fprintf(stderr, "Program link error:\n%s\n", log);
+        fprintf(stderr, "%s program link error:\n%s\n", name, log);
     }
     gl.DeleteShader(a); gl.DeleteShader(b);
     return p;
@@ -8833,6 +8870,43 @@ static SDL_Scancode keyName(const std::string& k) {
     return SDL_SCANCODE_UNKNOWN;
 }
 
+#ifdef __EMSCRIPTEN__
+static Uint8 mobileKeys[SDL_NUM_SCANCODES] = {};
+
+extern "C" EMSCRIPTEN_KEEPALIVE void mobile_input(int action, int down) {
+    static const SDL_Scancode actions[] = {
+        SDL_SCANCODE_W,
+        SDL_SCANCODE_S,
+        SDL_SCANCODE_A,
+        SDL_SCANCODE_D,
+        SDL_SCANCODE_SPACE,
+        SDL_SCANCODE_J,
+        SDL_SCANCODE_K,
+        SDL_SCANCODE_L,
+        SDL_SCANCODE_I
+    };
+
+    if (action < 0 || action >= (int)(sizeof(actions) / sizeof(actions[0]))) return;
+
+    SDL_Scancode sc = actions[action];
+    Uint8 state = down ? 1 : 0;
+    if (mobileKeys[sc] == state) return;
+
+    mobileKeys[sc] = state;
+
+    SDL_Event e;
+    SDL_zero(e);
+    e.type = down ? SDL_KEYDOWN : SDL_KEYUP;
+    e.key.type = e.type;
+    e.key.state = down ? SDL_PRESSED : SDL_RELEASED;
+    e.key.repeat = 0;
+    e.key.keysym.scancode = sc;
+    e.key.keysym.sym = SDL_GetKeyFromScancode(sc);
+    e.key.keysym.mod = KMOD_NONE;
+    SDL_PushEvent(&e);
+}
+#endif
+
 int main(int argc, char** argv) {
     bool mute = false, hideHud = false, noHelp = false, forceTitle = false, startPaused = false;
     int cliTod = -1, cliQuality = -1, cliFull = -1;
@@ -8897,9 +8971,15 @@ int main(int argc, char** argv) {
         fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
         return 1;
     }
+#ifdef __EMSCRIPTEN__
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+#else
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+#endif
 #ifdef __APPLE__
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
 #endif
@@ -8918,12 +8998,21 @@ int main(int argc, char** argv) {
     }
     if (!win || !ctx) { fprintf(stderr, "Could not create an OpenGL 3.3 window: %s\n", SDL_GetError()); return 1; }
     if (!gl.load()) { fprintf(stderr, "Required OpenGL functions are missing.\n"); return 1; }
+#ifndef __EMSCRIPTEN__
     SDL_GL_SetSwapInterval(shotMode ? 0 : 1);
+#endif
 
     initAudio(mute);
     openPad();
     initRenderer();
     applyTimeOfDay(SET.tod);
+#ifdef __EMSCRIPTEN__
+    {
+        GLenum err;
+        while ((err = glGetError()) != GL_NO_ERROR)
+            fprintf(stderr, "WebGL error after renderer init: 0x%04x\n", (unsigned)err);
+    }
+#endif
     buildLevel();
     RD.staticMesh.build(SM);
     RD.waterMesh.upload(WM, false);
@@ -9120,10 +9209,17 @@ int main(int argc, char** argv) {
 
         // ---------------------------------------------------------------- input
         const Uint8* ks = SDL_GetKeyboardState(nullptr);
+        auto keyHeld = [&](SDL_Scancode sc) {
+            if (sc == SDL_SCANCODE_UNKNOWN) return false;
+
+            bool r = ks[sc] != 0;
+#ifdef __EMSCRIPTEN__
+            r = r || mobileKeys[sc] != 0;
+#endif
+            return r;
+        };
         auto held = [&](SDL_Scancode a, SDL_Scancode b = SDL_SCANCODE_UNKNOWN, SDL_Scancode c = SDL_SCANCODE_UNKNOWN) {
-            bool r = ks[a] != 0;
-            if (b != SDL_SCANCODE_UNKNOWN) r = r || ks[b];
-            if (c != SDL_SCANCODE_UNKNOWN) r = r || ks[c];
+            bool r = keyHeld(a) || keyHeld(b) || keyHeld(c);
             for (auto& s : script) if (frame >= s.f0 && frame <= s.f1 && (s.sc == a || s.sc == b || s.sc == c)) r = true;
             return r;
         };
@@ -9325,6 +9421,9 @@ int main(int argc, char** argv) {
             }
         }
         SDL_GL_SwapWindow(win);
+#ifdef __EMSCRIPTEN__
+        emscripten_sleep(0);
+#endif
         frame++;
     }
     if (audioDev) SDL_CloseAudioDevice(audioDev);
