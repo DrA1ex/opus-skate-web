@@ -9019,6 +9019,12 @@ static void renderFrame(const FrameInfo& F, V3 poolCenter) {
 
     // ---- 13. FXAA + film to the screen
     gl.BindFramebuffer(GL_FRAMEBUFFER, RD.outFbo);
+#ifdef __EMSCRIPTEN__
+    if (!RD.outFbo) {
+        const GLenum back = GL_BACK;
+        glDrawBuffers(1, &back);
+    }
+#endif
     glViewport(0, 0, F.W, F.H);
     gl.UseProgram(RD.pFinal);
     bindTexU(RD.pFinal, "uLdr", TU_A, RD.ldr);
@@ -9746,6 +9752,12 @@ int main(int argc, char** argv) {
 
             // HUD
             gl.BindFramebuffer(GL_FRAMEBUFFER, RD.outFbo);
+#ifdef __EMSCRIPTEN__
+    if (!RD.outFbo) {
+        const GLenum back = GL_BACK;
+        glDrawBuffers(1, &back);
+    }
+#endif
             glViewport(0, 0, W, H);
             glDisable(GL_DEPTH_TEST);
             glEnable(GL_BLEND);
