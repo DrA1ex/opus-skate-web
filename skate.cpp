@@ -1198,12 +1198,12 @@ void main(){
   } else if(m == 5){                                                 // asphalt
     alb *= 0.72 + 0.42 * fbm(uv * 0.9);
     alb *= 0.9 + 0.2 * vnoise(uv * 9.0);
-    float patch = smoothstep(0.62, 0.66, fbm(uv * 0.12 + 4.0));
-    alb = mix(alb, alb * 0.66, patch);
+    float asphaltPatch = smoothstep(0.62, 0.66, fbm(uv * 0.12 + 4.0));
+    alb = mix(alb, alb * 0.66, asphaltPatch);
     alb *= 1.0 - crackMask(uv) * 0.3;
     alb *= mix(1.0, 0.84 + 0.32 * vnoise(uv * 60.0), detail);
     alb *= 1.0 - smoothstep(0.6, 0.85, fbm(uv * 0.35 + 21.0)) * 0.25;   // oil and tyre stains
-    rough = mix(0.9, 0.74, patch);
+    rough = mix(0.9, 0.74, asphaltPatch);
     puddleOK = 1.0;
   } else if(m == 24){                                                // road paint, worn through to the asphalt
     float wear = smoothstep(0.45, 0.75, fbm(uv * 2.5 + 7.0) + 0.25 * vnoise(uv * 30.0));
