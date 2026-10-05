@@ -8340,12 +8340,19 @@ static void applyTimeOfDay(int idx) {
 // ----------------------------------------------------------------------------
 // Graphics settings
 // ----------------------------------------------------------------------------
-struct Quality { const char* name; float scale; int shadowRes, shadowQ, ssao, ssr, fogSteps, fogLights, motion, lights; };
+struct Quality {
+    const char* name;
+    float scale;
+    int shadowRes, shadowQ, ssao, ssr, fogSteps, fogLights, motion, lights;
+    int cascades, bloomLevels, planar;
+};
 static const Quality QUALITY[4] = {
-    {"LOW", 0.75f, 1024, 0, 0, 0, 0, 0, 0, 16},
-    {"MEDIUM", 1.0f, 2048, 1, 8, 0, 16, 0, 0, 32},
-    {"HIGH", 1.0f, 2048, 2, 12, 32, 24, 8, 1, MAX_LIGHTS},
-    {"ULTRA", -1.0f, 4096, 2, 16, 56, 40, 16, 1, MAX_LIGHTS},   // scale -1: supersample up to 2x2
+    // Lower presets deliberately reduce pass count as well as shader quality.
+    // This matters much more on WebGL/mobile than merely reducing pixel count.
+    {"LOW", 0.75f, 1024, 0, 0, 0, 0, 0, 0, 16, 2, 3, 0},
+    {"MEDIUM", 1.0f, 2048, 1, 8, 0, 16, 0, 0, 32, 3, 4, 1},
+    {"HIGH", 1.0f, 2048, 2, 12, 32, 24, 8, 1, MAX_LIGHTS, 4, 5, 1},
+    {"ULTRA", -1.0f, 4096, 2, 16, 56, 40, 16, 1, MAX_LIGHTS, 4, 7, 1},   // scale -1: supersample up to 2x2
 };
 struct Settings {
     int quality = 3, tod = 0;
@@ -8402,7 +8409,7 @@ struct Renderer {
     GpuMesh dynMesh, waterMesh;
     // cascaded shadow map
     GLuint shadowTex = 0, shadowFbo = 0, sampCmp = 0, sampRaw = 0;
-    int shadowRes = 0;
+    int shadowRes = 0, shadowCascades = 0;
     M4 cascVP[NUM_CASC];
     float cascSplit[4] = {}, cascWorld[4] = {}, cascDepth[4] = {};
     // sky environment (lat-long): atmosphere only, and atmosphere + clouds with mips for reflections
@@ -8462,12 +8469,12 @@ static void setShadowUniforms(GLuint p, V3 camFwd, int quality) {
     set1i(p, "uShadowCmp", TU_SHADOWCMP); set1i(p, "uShadowRaw", TU_SHADOWRAW);
     gl.UniformMatrix4fv(U_(p, "uCascVP"), NUM_CASC, GL_FALSE, RD.cascVP[0].m);
     set4f(p, "uCascSplit", RD.cascSplit); set4f(p, "uCascWorld", RD.cascWorld); set4f(p, "uCascDepth", RD.cascDepth);
-    set1i(p, "uNumCasc", NUM_CASC); set1i(p, "uShadowQ", quality);
+    set1i(p, "uNumCasc", RD.shadowCascades); set1i(p, "uShadowQ", quality);
     set1f(p, "uShadowTexel", 1.f / RD.shadowRes); set1f(p, "uSunSize", LIGHT.sunSize); set3(p, "uCamFwd", camFwd);
 }
 static void setLightUniforms(GLuint p) {
     int n = (int)frameLights.size();
-    std::vector<float> pos(4 * MAX_LIGHTS, 0.f), col(4 * MAX_LIGHTS, 0.f), dir(4 * MAX_LIGHTS, 0.f);
+    float pos[4 * MAX_LIGHTS] = {}, col[4 * MAX_LIGHTS] = {}, dir[4 * MAX_LIGHTS] = {};
     for (int i = 0; i < n; i++) {
         const PointLight& l = frameLights[i];
         float* P = &pos[4 * i]; float* C = &col[4 * i]; float* D = &dir[4 * i];
@@ -8477,9 +8484,9 @@ static void setLightUniforms(GLuint p) {
     }
     set1i(p, "uNumLights", n);
     if (n > 0) {
-        gl.Uniform4fv(U_(p, "uLPos"), n, pos.data());
-        gl.Uniform4fv(U_(p, "uLCol"), n, col.data());
-        gl.Uniform4fv(U_(p, "uLDir"), n, dir.data());
+        gl.Uniform4fv(U_(p, "uLPos"), n, pos);
+        gl.Uniform4fv(U_(p, "uLCol"), n, col);
+        gl.Uniform4fv(U_(p, "uLDir"), n, dir);
     }
 }
 static void setPostUniforms(GLuint p, const M4& vp, const M4& invVP) {
@@ -8536,6 +8543,7 @@ static GLuint rtFbo(std::initializer_list<GLuint> colors, GLuint depthTex, const
 
 // (Re)create every screen-sized target when the window size or graphics quality changes
 static void ensureTargets(int W, int H, bool shot) {
+    const Quality& Q = QUALITY[SET.quality];
     float scale = renderScale(W, H);
     if (W == RD.ow && H == RD.oh && SET.quality == RD.targetQuality && scale == RD.targetScale && shot == RD.targetShot) return;
     if (!RD.ownedTex.empty()) glDeleteTextures((GLsizei)RD.ownedTex.size(), RD.ownedTex.data());
@@ -8548,8 +8556,10 @@ static void ensureTargets(int W, int H, bool shot) {
     RD.depthCopy = rtTex(iw, ih, GL_DEPTH_COMPONENT32F, GL_DEPTH_COMPONENT, GL_FLOAT, GL_NEAREST);
     RD.nrm = rtTex(iw, ih, GL_RGB10_A2, GL_RGBA, GL_UNSIGNED_INT_2_10_10_10_REV, GL_NEAREST);
     RD.hdr0 = rtTex(iw, ih, GL_RGBA16F, GL_RGBA, GL_FLOAT, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-    gl.GenerateMipmap(GL_TEXTURE_2D);
+    if (Q.ssr > 0) {
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        gl.GenerateMipmap(GL_TEXTURE_2D);
+    }
     RD.reflInfo = rtTex(iw, ih, GL_RGBA16F, GL_RGBA, GL_FLOAT, GL_NEAREST);
     RD.surf = rtTex(iw, ih, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, GL_NEAREST);
     RD.hdr1 = rtTex(iw, ih, GL_RGBA16F, GL_RGBA, GL_FLOAT, GL_LINEAR);
@@ -8559,16 +8569,22 @@ static void ensureTargets(int W, int H, bool shot) {
     RD.fboHdr1 = rtFbo({RD.hdr1}, 0, "hdr1");
     RD.fboDepthCopy = rtFbo({}, RD.depthCopy, "depth copy");
     RD.aw = std::max(8, iw / 2); RD.ah = std::max(8, ih / 2);
-    for (int i = 0; i < 2; i++) {
-        RD.ao[i] = rtTex(RD.aw, RD.ah, GL_R8, GL_RED, GL_UNSIGNED_BYTE, GL_LINEAR);
-        RD.fboAo[i] = rtFbo({RD.ao[i]}, 0, "ssao");
+    RD.ao[0] = RD.ao[1] = RD.fboAo[0] = RD.fboAo[1] = 0;
+    if (Q.ssao > 0) {
+        for (int i = 0; i < 2; i++) {
+            RD.ao[i] = rtTex(RD.aw, RD.ah, GL_R8, GL_RED, GL_UNSIGNED_BYTE, GL_LINEAR);
+            RD.fboAo[i] = rtFbo({RD.ao[i]}, 0, "ssao");
+        }
     }
     RD.fw = std::max(8, iw / 2); RD.fh = std::max(8, ih / 2);
-    RD.fog = rtTex(RD.fw, RD.fh, GL_RGBA16F, GL_RGBA, GL_FLOAT, GL_LINEAR);
-    RD.fboFog = rtFbo({RD.fog}, 0, "fog");
+    RD.fog = RD.fboFog = 0;
+    if (Q.fogSteps > 0) {
+        RD.fog = rtTex(RD.fw, RD.fh, GL_RGBA16F, GL_RGBA, GL_FLOAT, GL_LINEAR);
+        RD.fboFog = rtFbo({RD.fog}, 0, "fog");
+    }
     int bw = iw / 2, bh = ih / 2;
     RD.nBloom = 0;
-    while (RD.nBloom < 7 && bw >= 8 && bh >= 8) {
+    while (RD.nBloom < Q.bloomLevels && bw >= 8 && bh >= 8) {
         int i = RD.nBloom++;
         RD.bw[i] = bw; RD.bh[i] = bh;
         RD.bloom[i] = rtTex(bw, bh, GL_R11F_G11F_B10F, GL_RGB, GL_FLOAT, GL_LINEAR);
@@ -8578,9 +8594,12 @@ static void ensureTargets(int W, int H, bool shot) {
     RD.ldr = rtTex(W, H, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, GL_LINEAR);
     RD.fboLdr = rtFbo({RD.ldr}, 0, "ldr");
     RD.pw = std::max(64, W / 2); RD.ph = std::max(64, H / 2);
-    RD.planar = rtTex(RD.pw, RD.ph, GL_RGBA16F, GL_RGBA, GL_FLOAT, GL_LINEAR);
-    RD.planarDepth = rtTex(RD.pw, RD.ph, GL_DEPTH_COMPONENT24, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, GL_NEAREST);
-    RD.fboPlanar = rtFbo({RD.planar}, RD.planarDepth, "planar");
+    RD.planar = RD.planarDepth = RD.fboPlanar = 0;
+    if (Q.planar) {
+        RD.planar = rtTex(RD.pw, RD.ph, GL_RGBA16F, GL_RGBA, GL_FLOAT, GL_LINEAR);
+        RD.planarDepth = rtTex(RD.pw, RD.ph, GL_DEPTH_COMPONENT24, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, GL_NEAREST);
+        RD.fboPlanar = rtFbo({RD.planar}, RD.planarDepth, "planar");
+    }
     RD.outFbo = 0;
     if (shot) {
         RD.outTex = rtTex(W, H, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, GL_NEAREST);
@@ -8589,17 +8608,18 @@ static void ensureTargets(int W, int H, bool shot) {
     RD.havePrev = false;
 }
 
-static void ensureShadowMap(int res) {
-    if (res == RD.shadowRes) return;
+static void ensureShadowMap(int res, int cascades) {
+    if (res == RD.shadowRes && cascades == RD.shadowCascades) return;
     if (RD.shadowTex) glDeleteTextures(1, &RD.shadowTex);
     glGenTextures(1, &RD.shadowTex);
     glBindTexture(GL_TEXTURE_2D_ARRAY, RD.shadowTex);
-    gl.TexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_DEPTH_COMPONENT32F, res, res, NUM_CASC, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+    gl.TexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_DEPTH_COMPONENT32F, res, res, cascades, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     RD.shadowRes = res;
+    RD.shadowCascades = cascades;
 }
 
 static std::string vsSrc(const char* body) { return std::string("#version 330 core\n") + body; }
@@ -8706,14 +8726,14 @@ static void drawFullscreen() {
 
 // Stable cascades: each covers a fixed-size bounding sphere of its slice of the view frustum,
 // snapped to whole shadow texels so the shadows do not shimmer as the camera moves.
-static void computeCascades(const M4& view, float fovDeg, float aspect) {
+static void computeCascades(const M4& view, float fovDeg, float aspect, int cascades) {
     static const float splits[NUM_CASC + 1] = {0.1f, 10.f, 30.f, 90.f, 280.f};
     V3 L = LIGHT.sunDir;
     V3 up = std::fabs(L.y) > 0.98f ? V3(1, 0, 0) : V3(0, 1, 0);
     M4 inv = mInverse(view);
     float th = std::tan(std::max(fovDeg, 80.f) * PI / 180.f * 0.5f);
     float back = std::min(900.f, 110.f / std::max(0.08f, L.y));   // reach for tall buildings far towards the light
-    for (int c = 0; c < NUM_CASC; c++) {
+    for (int c = 0; c < cascades; c++) {
         V3 pts[8], ctr(0, 0, 0);
         for (int k = 0; k < 8; k++) {
             float z = (k & 4) ? splits[c + 1] : splits[c];
@@ -8747,7 +8767,7 @@ struct FrameInfo {
 
 static void renderFrame(const FrameInfo& F, V3 poolCenter) {
     const Quality& Q = QUALITY[SET.quality];
-    ensureShadowMap(Q.shadowRes);
+    ensureShadowMap(Q.shadowRes, Q.cascades);
     ensureTargets(F.W, F.H, F.shot);
     M4 invVP = mInverse(F.vp);
     gatherLights(F.camPos, F.camFwd, Q.lights);
@@ -8774,7 +8794,7 @@ static void renderFrame(const FrameInfo& F, V3 poolCenter) {
     drawFullscreen();
 
     // ---- 2. shadow cascades
-    computeCascades(F.view, F.fovDeg, F.aspect);
+    computeCascades(F.view, F.fovDeg, F.aspect, Q.cascades);
     gl.BindFramebuffer(GL_FRAMEBUFFER, RD.shadowFbo);
     bindTex(TU_SKYENV, GL_TEXTURE_2D, RD.skyEnv);
     gl.GenerateMipmap(GL_TEXTURE_2D);
@@ -8785,7 +8805,7 @@ static void renderFrame(const FrameInfo& F, V3 poolCenter) {
     glEnable(GL_POLYGON_OFFSET_FILL);
     glPolygonOffset(1.4f, 2.0f);
     gl.UseProgram(RD.pShadow);
-    for (int c = 0; c < NUM_CASC; c++) {
+    for (int c = 0; c < Q.cascades; c++) {
         gl.FramebufferTextureLayer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, RD.shadowTex, 0, c);
 #ifdef __EMSCRIPTEN__
         const GLenum none = GL_NONE;
@@ -8845,7 +8865,7 @@ static void renderFrame(const FrameInfo& F, V3 poolCenter) {
     }
 
     // ---- 5. planar reflection of the city in the river
-    bool refl = F.camPos.z < 25.f || F.camFwd.z < -0.3f;
+    bool refl = Q.planar && (F.camPos.z < 25.f || F.camFwd.z < -0.3f);
     M4 mirror = mTranslate(V3(0, WATER_LEVEL, 0)) * mScale(V3(1, -1, 1)) * mTranslate(V3(0, -WATER_LEVEL, 0));
     if (refl) {
         M4 rvp = F.proj * F.view * mirror;
@@ -8907,7 +8927,7 @@ static void renderFrame(const FrameInfo& F, V3 poolCenter) {
     glDisable(GL_DEPTH_TEST);
     gl.BindFramebuffer(GL_FRAMEBUFFER, RD.fboHdr1);
     bindTex(TU_A, GL_TEXTURE_2D, RD.hdr0);
-    gl.GenerateMipmap(GL_TEXTURE_2D);
+    if (Q.ssr > 0) gl.GenerateMipmap(GL_TEXTURE_2D);
     setCommon(RD.pSSR, F.camPos, F.time);
     setPostUniforms(RD.pSSR, F.vp, invVP);
     bindTexU(RD.pSSR, "uColor", TU_A, RD.hdr0);
@@ -8942,28 +8962,30 @@ static void renderFrame(const FrameInfo& F, V3 poolCenter) {
     glDepthMask(GL_FALSE);
 
     // ---- 9. volumetric fog (half resolution), composited with a depth-aware upsample
-    gl.BindFramebuffer(GL_FRAMEBUFFER, RD.fboFog);
-    glViewport(0, 0, RD.fw, RD.fh);
-    setCommon(RD.pFog, F.camPos, F.time);
-    setShadowUniforms(RD.pFog, F.camFwd, 0);
-    setLightUniforms(RD.pFog);
-    setPostUniforms(RD.pFog, F.vp, invVP);
-    bindTexU(RD.pFog, "uDepth", TU_A, RD.depth);
-    set1i(RD.pFog, "uSteps", Q.fogSteps);
-    set1f(RD.pFog, "uMaxDist", Q.fogSteps > 0 ? 220.f : 0.f);
-    set1i(RD.pFog, "uFogLights", Q.fogLights);
-    set1f(RD.pFog, "uFogLightK", 0.06f * (1.f + 2.f * LIGHT.rain));
-    drawFullscreen();
-    gl.BindFramebuffer(GL_FRAMEBUFFER, RD.fboHdr1);
-    glViewport(0, 0, RD.iw, RD.ih);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_ONE, GL_SRC_ALPHA);
-    setCommon(RD.pFogApply, F.camPos, F.time);
-    setPostUniforms(RD.pFogApply, F.vp, invVP);
-    bindTexU(RD.pFogApply, "uFog", TU_A, RD.fog);
-    bindTexU(RD.pFogApply, "uDepth", TU_B, RD.depth);
-    set2f(RD.pFogApply, "uFogRes", (float)RD.fw, (float)RD.fh);
-    drawFullscreen();
+    if (Q.fogSteps > 0) {
+        gl.BindFramebuffer(GL_FRAMEBUFFER, RD.fboFog);
+        glViewport(0, 0, RD.fw, RD.fh);
+        setCommon(RD.pFog, F.camPos, F.time);
+        setShadowUniforms(RD.pFog, F.camFwd, 0);
+        setLightUniforms(RD.pFog);
+        setPostUniforms(RD.pFog, F.vp, invVP);
+        bindTexU(RD.pFog, "uDepth", TU_A, RD.depth);
+        set1i(RD.pFog, "uSteps", Q.fogSteps);
+        set1f(RD.pFog, "uMaxDist", 220.f);
+        set1i(RD.pFog, "uFogLights", Q.fogLights);
+        set1f(RD.pFog, "uFogLightK", 0.06f * (1.f + 2.f * LIGHT.rain));
+        drawFullscreen();
+        gl.BindFramebuffer(GL_FRAMEBUFFER, RD.fboHdr1);
+        glViewport(0, 0, RD.iw, RD.ih);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_ONE, GL_SRC_ALPHA);
+        setCommon(RD.pFogApply, F.camPos, F.time);
+        setPostUniforms(RD.pFogApply, F.vp, invVP);
+        bindTexU(RD.pFogApply, "uFog", TU_A, RD.fog);
+        bindTexU(RD.pFogApply, "uDepth", TU_B, RD.depth);
+        set2f(RD.pFogApply, "uFogRes", (float)RD.fw, (float)RD.fh);
+        drawFullscreen();
+    }
 
     // ---- 10. particles (soft, lit, premultiplied alpha; emissive sparks are additive)
     V3 camRight = norm(cross(F.camFwd, V3(0, 1, 0)));
