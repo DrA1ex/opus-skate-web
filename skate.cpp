@@ -8842,7 +8842,9 @@ static void renderFrame(const FrameInfo& F, V3 poolCenter) {
         glEnable(GL_DEPTH_TEST);
         glDepthFunc(GL_LESS);
         glDepthMask(GL_TRUE);
+#ifndef __EMSCRIPTEN__
         glEnable(GL_CLIP_DISTANCE0);
+#endif
         setCommon(RD.pWorld, rc, F.time);
         setShadowUniforms(RD.pWorld, F.camFwd, 0);
         setLightUniforms(RD.pWorld);
