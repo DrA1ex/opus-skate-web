@@ -8428,7 +8428,14 @@ static const Quality QUALITY[4] = {
     {"ULTRA", -1.0f, 4096, 2, 16, 56, 40, 16, 1, MAX_LIGHTS, 4, 7, 1},   // scale -1: supersample up to 2x2
 };
 struct Settings {
+#ifdef __EMSCRIPTEN__
+    // WebGL gets a balanced default instead of desktop ULTRA. Touch/mobile
+    // explicitly overrides this to LOW from the shell; desktop browsers may
+    // still select HIGH/ULTRA from the graphics menu.
+    int quality = 1, tod = 0;
+#else
     int quality = 3, tod = 0;
+#endif
     float musicVol = 0.6f, sfxVol = 1.0f, scaleOverride = 0.f;
     bool motionBlur = true, filmGrain = true, showFps = false, fullscreen = false;
 };
