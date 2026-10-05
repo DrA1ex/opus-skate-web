@@ -143,8 +143,11 @@ async function testRuntime(browser) {
   const runtime = await browser.newPage({ viewport: { width: 480, height: 270 } });
 
   let rendererReady;
+  let staticTriangles = null;
   const ready = new Promise(resolve => { rendererReady = resolve; });
   const messages = inspectPage(runtime, 'runtime', text => {
+    const geometry = text.match(/Concrete Jungle:\s+(\d+)\s+static triangles/);
+    if (geometry) staticTriangles = Number(geometry[1]);
     if (text.includes('web renderer targets ready')) rendererReady();
   });
 
@@ -160,6 +163,13 @@ async function testRuntime(browser) {
     ready,
     timeout(15000, 'Web renderer did not reach target initialization within 15 seconds')
   ]);
+
+  if (staticTriangles === null) {
+    throw new Error('Browser runtime did not report its static geometry budget');
+  }
+  if (staticTriangles > 450000) {
+    throw new Error(`Mobile LOW geometry budget regressed: ${staticTriangles} static triangles`);
+  }
 
   const fatal = messages.filter(line => fatalPattern.test(line));
   if (fatal.length) {
