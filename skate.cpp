@@ -7098,8 +7098,9 @@ static void shopPerson(const M4& M, uint32_t seed, int pose) {
 }
 
 static void drawNpcs(MeshBuilder& mb, V3 cam) {
+    const float drawDist = lowDetailGeometry() ? 65.f : 90.f;
     for (auto& n : npcs) {
-        if (len(n.pos - cam) > 90.f) continue;
+        if (len(n.pos - cam) > drawDist) continue;
         Pose p;
         M4 M = mTranslate(n.pos) * mRotY(n.yaw + PI / 2);
         if (n.knocked > 0) {
@@ -7162,8 +7163,9 @@ static void updatePigeons(float dt, const Player& pl) {
 }
 static void drawPigeons(MeshBuilder& mb, V3 cam) {
     Col body = hexc(0x7d8088), head = hexc(0x4f5a5e), neck = hexc(0x4a6a60), wing = hexc(0x8f939a), tail = hexc(0x3f464a), beak = hexc(0x2a2624), legs = hexc(0xb05a50), eye = hexc(0xe0781c);
+    const float drawDist = lowDetailGeometry() ? 45.f : 70.f;
     for (auto& p : pigeons) {
-        if (p.state == 2 || len(p.pos - cam) > 70.f) continue;
+        if (p.state == 2 || len(p.pos - cam) > drawDist) continue;
         M4 F = mTranslate(p.pos) * mRotY(p.yaw);
         float bob = p.state == 0 ? std::max(0.f, std::sin(p.peck * 5.f)) * 0.05f : 0;
         mb.beginObj(F);   // feathers are textured in the bird's own space
@@ -7325,7 +7327,7 @@ static void drawTraffic(MeshBuilder& mb, V3 cam) {
     for (auto& c : cars) {
         float yaw;
         V3 p = carWorld(c, yaw);
-        if (lenXZ(p - cam) > 180.f) continue;
+        if (lenXZ(p - cam) > (lowDetailGeometry() ? 120.f : 180.f)) continue;
         carGeom(mb, frame(p.x, 0, p.z, yaw), c.type, c.col, c.brake);
     }
 }
@@ -7378,7 +7380,7 @@ static void addPlayerFill(V3 camPos, V3 skater) {
 static void drawBeacons(MeshBuilder& mb, V3 cam) {
     int step = (int)std::floor(tlTimer * 3.f);
     for (auto& b : beacons) {
-        if (lenXZ(b.pos - cam) > 180.f) continue;
+        if (lenXZ(b.pos - cam) > (lowDetailGeometry() ? 120.f : 180.f)) continue;
         bool on = (step + b.phase) % 4 == 0;
         mb.box(mTranslate(b.pos), V3(0.11f, 0.15f, 0.11f), on ? hexc(0xffa020) : hexc(0x6a4408), on ? MAT_EMISSIVE : MAT_PAINTED);
     }
@@ -7420,7 +7422,10 @@ struct Particle {
 };
 static std::vector<Particle> parts;
 static Rng prng(2024);
-static void addParticle(const Particle& p) { if (parts.size() < 20000) parts.push_back(p); }
+static void addParticle(const Particle& p) {
+    const size_t budget = lowDetailGeometry() ? 5000u : 20000u;
+    if (parts.size() < budget) parts.push_back(p);
+}
 static V3 randDir() {
     for (;;) {
         V3 d(prng.range(-1, 1), prng.range(-1, 1), prng.range(-1, 1));
@@ -7468,7 +7473,7 @@ static void spawnSplash(V3 p, int n, float power) {
 // Rain: streaks falling in a cylinder around the camera, splashing where they land
 static void spawnRain(float dt, V3 cam, float amount) {
     static float acc = 0;
-    acc += dt * 3600.f * amount;
+    acc += dt * (lowDetailGeometry() ? 900.f : 3600.f) * amount;
     while (acc >= 1.f) {
         acc -= 1.f;
         float a = prng.range(0, TAU), r = 26.f * std::sqrt(prng.f());
@@ -7486,7 +7491,7 @@ static void updateParticles(float dt, V3 cam) {
     // emitters near the camera
     for (auto& e : emitters) {
         if (len(e.pos - cam) > 75.f) continue;
-        e.acc += e.rate * dt;
+        e.acc += e.rate * dt * (lowDetailGeometry() ? 0.55f : 1.f);
         while (e.acc >= 1.f) {
             e.acc -= 1.f;
             Particle q;
