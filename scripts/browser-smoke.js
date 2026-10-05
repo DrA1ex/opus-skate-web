@@ -149,7 +149,10 @@ async function testRuntime(browser) {
   });
 
   await assertHttp(
-    await runtime.goto('http://127.0.0.1:8000', { waitUntil: 'domcontentloaded', timeout: 10000 }),
+    // Exercise the mobile-safe runtime profile in CI. Shader programs are still
+    // all compiled at startup, but we avoid allocating ULTRA's 4x4096 shadow
+    // array just to prove that WebGL initialized.
+    await runtime.goto('http://127.0.0.1:8000/?touch=1', { waitUntil: 'domcontentloaded', timeout: 10000 }),
     'Runtime'
   );
 
