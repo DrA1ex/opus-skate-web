@@ -43,6 +43,11 @@ inline void initGame() {
 // Put the whole world back into its start-of-run state so tests are isolated:
 // entities, timers, one-shots, the player and every RNG stream the game owns.
 inline void resetWorld() {
+    // Reset deterministic streams before entity initialization/priming: the
+    // newer pigeon/NPC update paths consume RNG during the priming tick.
+    prng = Rng(2024);
+    npcRng = Rng(4242);
+    pigeonRng = Rng(99);
     npcs.clear();
     pigeons.clear();
     cars.clear();
@@ -50,6 +55,11 @@ inline void resetWorld() {
     initNpcs();
     initPigeons();
     initTraffic();
+    // Traffic priming itself advances the signal/vehicle simulation, so the
+    // signal clock must be reset before that tick. Otherwise a reset inherits
+    // the previous test/run's traffic phase and replay starts from a different
+    // car state even with identical inputs.
+    tlTimer = 0.f;
     primeEntities();
     tlTimer = 0.f;
     parts.clear();
@@ -62,11 +72,7 @@ inline void resetWorld() {
     aud = AudioParams();
     publishAudio(aud, true);
     LS = LiveState();
-    // Every RNG stream the game owns, back to its start-of-process state, so a
-    // run is reproducible no matter what ran before it in this process.
-    prng = Rng(2024);            // particles
-    npcRng = Rng(4242);          // pedestrian chatter
-    pigeonRng = Rng(99);         // pigeon idle / startle jitter
+    // RNG streams were reset before entity initialization above.
 }
 
 // Rebuild the level from scratch. buildLevel() appends to the mesh builders and
@@ -82,7 +88,9 @@ inline void rebuildLevel() {
     world.grid.clear();
     emitters.clear();
     tlights.clear();
-    lamps.clear();
+    staticLights.clear();
+    dynLights.clear();
+    frameLights.clear();
     npcPaths.clear();
     pigeonSpots.clear();
     letterPos.clear();

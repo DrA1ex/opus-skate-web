@@ -504,8 +504,18 @@
 
     canvas.addEventListener('pointerdown', () => canvas.focus({ preventScroll: true }));
 
+    // Start the native/WebGL side at the actual CSS viewport size.  On mobile
+    // this avoids a costly first 1280x720 frame before the async resize bridge
+    // can run.  Touch devices also start on LOW: the desktop-oriented HDR
+    // renderer's ULTRA preset can allocate hundreds of MB of render targets and
+    // a 4-layer 4096px shadow map, which is unsafe for mobile Safari.
+    const initialViewport = viewportRect();
+    const startupArgs = ['--res', Math.round(initialViewport.width) + 'x' + Math.round(initialViewport.height)];
+    if (touchMode) startupArgs.push('--quality', '0');
+
     var Module = {
       canvas,
+      arguments: startupArgs,
       print: (...args) => console.log(...args),
       printErr: (...args) => console.error(...args),
       setStatus: (text) => {
