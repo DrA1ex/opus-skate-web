@@ -9813,12 +9813,7 @@ int main(int argc, char** argv) {
                 gl.BindFramebuffer(GL_FRAMEBUFFER, RD.outFbo);
                 glReadBuffer(GL_COLOR_ATTACHMENT0);
                 glReadPixels(0, 0, W, H, GL_RGB, GL_UNSIGNED_BYTE, px.data());
-                FILE* f = fopen(shotPath.c_str(), "wb");
-                if (f) {
-                    fprintf(f, "P6\n%d %d\n255\n", W, H);
-                    for (int y = H - 1; y >= 0; y--) fwrite(&px[(size_t)y * W * 3], 1, (size_t)W * 3, f);
-                    fclose(f);
-                }
+                if (!writePpm(shotPath, W, H, px)) exitCode = 1;
                 static const char* SN[] = {"RIDE", "AIR", "GRIND", "MANUAL", "BAIL"};
                 if (getenv("CJ_DEBUG_TRAFFIC"))
                     for (auto& c : cars) { float yw; V3 p = carWorld(c, yw); printf("car lane %d turn %d pos %.1f %.1f yaw %.2f speed %.1f\n", c.lane, c.turn, p.x, p.z, yw, c.speed); }
