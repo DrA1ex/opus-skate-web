@@ -3429,9 +3429,8 @@ static void building(float x0, float z0, float x1, float z1, float h, int style,
     Rng r(seed);
     if (style != 2) {
         Col cor = style == 1 ? shade(col, 0.85f) : hexc(0x6d665c);
-        int trimFaces = wallFaces | 4 | 8;
-        SM.boxAA(V3(x0 - 0.35f, h - 0.15f, z0 - 0.35f), V3(x1 + 0.35f, h + 0.45f, z1 + 0.35f), cor, MAT_CONCRETE, trimFaces);
-        SM.boxAA(V3(x0 - 0.12f, 4.7f, z0 - 0.12f), V3(x1 + 0.12f, 4.95f, z1 + 0.12f), cor, MAT_CONCRETE, trimFaces);   // storefront cornice line
+        SM.boxAA(V3(x0 - 0.35f, h - 0.15f, z0 - 0.35f), V3(x1 + 0.35f, h + 0.45f, z1 + 0.35f), cor, MAT_CONCRETE);
+        SM.boxAA(V3(x0 - 0.12f, 4.7f, z0 - 0.12f), V3(x1 + 0.12f, 4.95f, z1 + 0.12f), cor, MAT_CONCRETE);   // storefront cornice line
     } else {
         SM.boxAA(V3(x0 + 1, h, z0 + 1), V3(x1 - 1, h + 3, z1 - 1), hexc(0x5b6066), MAT_CONCRETE);
     }
@@ -3490,7 +3489,7 @@ static void facadeRow(V3 left, V3 out, float length, float depth, uint32_t seed,
             storefront(p0 + out * FACADE_EPS, r, out, w, SHOP_NAMES[shopIdx++ % 28], hexc(signBg[k]), hexc(signFg[k]),
                        hexc(awn[rng.irange(0, 5)]), rng.chance(0.6f), rng, depth, real);
         }
-        if (buildShells && style == 0 && h > 12 && rng.chance(0.5f))
+        if (style == 0 && h > 12 && rng.chance(0.5f))
             fireEscape(p0 + r * (w * 0.2f) + out * FACADE_EPS, r, out, w * 0.6f, (int)((h - 5.f) / 3.3f));
         x += w;
     }
