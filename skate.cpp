@@ -8146,10 +8146,12 @@ static void drawGameHud(const Player& pl, float time, float sessionLeft, bool se
     char sb[48];
     snprintf(sb, sizeof sb, "%d MPH", (int)(len(pl.vel) * 2.237f + 0.5f));
     hud.text(24 * U, hud.H - 30 * U, 2 * U, sb, Col(220, 220, 220), 0.8f);
-    if (!showHelp) hud.text(hud.W - 24 * U, hud.H - 30 * U, 1.5f * U, "H: CONTROLS   TAB: MAP   N: TIME OF DAY   V: CAMERA   ESC: MENU", Col(220, 220, 220), 0.75f, 2);
-    else hud.text(hud.W - 24 * U, hud.H - 30 * U, 1.5f * U, helpPage == 1 ? "H: TRICK LIST" : "H: HIDE", hexc(0xffd23a), 0.9f, 2);
-    if (helpPage == 1 && helpAlpha > 0.01f) drawHelpPanel(20 * U, 110 * U, helpAlpha, 1.5f);
-    if (helpPage == 2 && helpAlpha > 0.01f) drawTrickPanel(20 * U, 110 * U, helpAlpha);
+    if (!webMobileMode) {
+        if (!showHelp) hud.text(hud.W - 24 * U, hud.H - 30 * U, 1.5f * U, "H: CONTROLS   TAB: MAP   N: TIME OF DAY   V: CAMERA   ESC: MENU", Col(220, 220, 220), 0.75f, 2);
+        else hud.text(hud.W - 24 * U, hud.H - 30 * U, 1.5f * U, helpPage == 1 ? "H: TRICK LIST" : "H: HIDE", hexc(0xffd23a), 0.9f, 2);
+        if (helpPage == 1 && helpAlpha > 0.01f) drawHelpPanel(20 * U, 110 * U, helpAlpha, 1.5f);
+        if (helpPage == 2 && helpAlpha > 0.01f) drawTrickPanel(20 * U, 110 * U, helpAlpha);
+    }
     if (showFps) { snprintf(sb, sizeof sb, "%.0f FPS", fps); hud.text(24 * U, hud.H - 50 * U, 1.5f * U, sb, Col(160, 255, 160), 0.8f); }
 }
 
