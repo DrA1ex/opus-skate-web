@@ -2095,9 +2095,40 @@ void main(){
 }
 )";
 
+static std::string platformShaderSource(std::string src) {
+#ifdef __EMSCRIPTEN__
+    const std::string desktop = "#version 330 core";
+    const std::string web =
+        "#version 300 es\n"
+        "precision highp float;\n"
+        "precision highp int;\n"
+        "precision highp sampler2D;\n"
+        "precision highp sampler2DShadow;\n"
+        "precision highp sampler2DArray;\n"
+        "precision highp sampler2DArrayShadow;";
+    size_t p = src.find(desktop);
+    if (p != std::string::npos) src.replace(p, desktop.size(), web);
+    const std::string clip = "  gl_ClipDistance[0] = dot(vec4(aPos,1.0), uClip);\n";
+    while ((p = src.find(clip)) != std::string::npos) src.erase(p, clip.size());
+#else
+    const std::string web = "#version 300 es";
+    size_t p = src.find(web);
+    if (p != std::string::npos) src.replace(p, web.size(), "#version 330 core");
+    const char* precisionLines[] = {
+        "precision highp float;\n", "precision highp int;\n",
+        "precision highp sampler2D;\n", "precision highp sampler2DShadow;\n",
+        "precision highp sampler2DArray;\n", "precision highp sampler2DArrayShadow;\n"
+    };
+    for (const char* line : precisionLines)
+        while ((p = src.find(line)) != std::string::npos) src.erase(p, strlen(line));
+#endif
+    return src;
+}
+
 static GLuint compileShader(const char* name, GLenum type, const std::string& src) {
     GLuint s = gl.CreateShader(type);
-    const char* p = src.c_str();
+    std::string source = platformShaderSource(src);
+    const char* p = source.c_str();
     gl.ShaderSource(s, 1, &p, nullptr);
     gl.CompileShader(s);
     GLint ok = 0;
@@ -2123,6 +2154,10 @@ static GLuint makeProgram(const char* name, const std::string& vs, const std::st
     }
     gl.DeleteShader(a); gl.DeleteShader(b);
     return p;
+}
+
+static GLuint makeProgram(const std::string& vs, const std::string& fs) {
+    return makeProgram("renderer", vs, fs);
 }
 
 // ----------------------------------------------------------------------------
