@@ -213,9 +213,10 @@ TEST(world, being_hit_by_a_car_bails) {
     initGame();
     resetWorld();
     Car& c = cars[0];
-    const Lane& L = LANES[c.lane];
     c.speed = 9.f;
-    P.reset(V3(c.x + 0.5f, 0, L.z), 0);
+    float carYaw = 0.f;
+    V3 carPos = carWorld(c, carYaw);
+    P.reset(carPos + fwdYaw(carYaw) * 0.5f, carYaw);
     P.state = ST_RIDE;
     P.vel = V3(0, 0, 0);
     updateTraffic(1.f / 60.f, P);
@@ -229,10 +230,11 @@ TEST(world, cars_slow_for_the_skater) {
     initGame();
     resetWorld();
     Car& c = cars[0];
-    const Lane& L = LANES[c.lane];
     c.speed = c.target = 9.f;
     c.x = -40.f;
-    P.reset(V3(c.x + 12.f * L.dir, 0, L.z), 0);
+    float carYaw = 0.f;
+    V3 carPos = carWorld(c, carYaw);
+    P.reset(carPos + fwdYaw(carYaw) * 12.f, carYaw);
     P.state = ST_RIDE;
     P.vel = V3(0, 0, 0);
     c.honk = 0;
