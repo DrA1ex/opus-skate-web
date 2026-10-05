@@ -8546,7 +8546,7 @@ static void ensureTargets(int W, int H, bool shot) {
     RD.iw = iw; RD.ih = ih;
     RD.depth = rtTex(iw, ih, GL_DEPTH_COMPONENT32F, GL_DEPTH_COMPONENT, GL_FLOAT, GL_NEAREST);
     RD.depthCopy = rtTex(iw, ih, GL_DEPTH_COMPONENT32F, GL_DEPTH_COMPONENT, GL_FLOAT, GL_NEAREST);
-    RD.nrm = rtTex(iw, ih, GL_RGB10_A2, GL_RGBA, GL_UNSIGNED_BYTE, GL_NEAREST);
+    RD.nrm = rtTex(iw, ih, GL_RGB10_A2, GL_RGBA, GL_UNSIGNED_INT_2_10_10_10_REV, GL_NEAREST);
     RD.hdr0 = rtTex(iw, ih, GL_RGBA16F, GL_RGBA, GL_FLOAT, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     gl.GenerateMipmap(GL_TEXTURE_2D);
