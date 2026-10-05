@@ -8643,11 +8643,20 @@ static void ensureTargets(int W, int H, bool shot) {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
         gl.GenerateMipmap(GL_TEXTURE_2D);
     }
-    RD.reflInfo = rtTex(iw, ih, GL_RGBA16F, GL_RGBA, GL_FLOAT, GL_NEAREST);
-    RD.surf = rtTex(iw, ih, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, GL_NEAREST);
+    RD.reflInfo = RD.surf = 0;
     RD.hdr1 = rtTex(iw, ih, GL_RGBA16F, GL_RGBA, GL_FLOAT, GL_LINEAR);
     RD.fboPre = rtFbo({RD.nrm}, RD.depth, "prepass");
-    RD.fboMain = rtFbo({RD.hdr0, RD.reflInfo, RD.surf}, RD.depth, "main");
+    if (Q.ssr > 0) {
+        RD.reflInfo = rtTex(iw, ih, GL_RGBA16F, GL_RGBA, GL_FLOAT, GL_NEAREST);
+        RD.surf = rtTex(iw, ih, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, GL_NEAREST);
+        RD.fboMain = rtFbo({RD.hdr0, RD.reflInfo, RD.surf}, RD.depth, "main");
+    } else {
+        // The world shader has MRT outputs for SSR metadata, but when SSR is
+        // disabled only COLOR_ATTACHMENT0 is enabled; the unused outputs are
+        // discarded instead of consuming two full-resolution textures and
+        // extra framebuffer bandwidth.
+        RD.fboMain = rtFbo({RD.hdr0}, RD.depth, "main");
+    }
     RD.fboHdr1D = rtFbo({RD.hdr1}, RD.depth, "hdr1+depth");
     RD.fboHdr1 = rtFbo({RD.hdr1}, 0, "hdr1");
     RD.fboDepthCopy = rtFbo({}, RD.depthCopy, "depth copy");
