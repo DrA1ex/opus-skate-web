@@ -44,6 +44,8 @@ TEST(replay, record_then_replay_reproduces_the_run) {
     };
 
     Replay rec;
+    std::vector<V3> liveNpcs0, livePigeons0;
+    std::vector<float> liveCars0;
     MonkeyRng rng(2024u);
     Sim liveSim;
     std::vector<Trace> trace;
@@ -60,6 +62,12 @@ TEST(replay, record_then_replay_reproduces_the_run) {
         if (!cars.empty()) t.car0 = cars[0].x;
         t.timer = tlTimer;
         trace.push_back(t);
+        if (f == 0) {
+            liveNpcs0.clear(); livePigeons0.clear(); liveCars0.clear();
+            for (auto& n : npcs) liveNpcs0.push_back(n.pos);
+            for (auto& p : pigeons) livePigeons0.push_back(p.pos);
+            for (auto& c : cars) liveCars0.push_back(c.x);
+        }
     }
     rec.ticks = (uint32_t)rec.input.size();
     rec.seed = 2024u;
@@ -91,6 +99,24 @@ TEST(replay, record_then_replay_reproduces_the_run) {
             printf("      pigeon0 live=(%.6f %.6f %.6f) replay=(%.6f %.6f %.6f)\n",
                    t.pigeon0.x,t.pigeon0.y,t.pigeon0.z,
                    pigeons.empty()?0.f:pigeons[0].pos.x,pigeons.empty()?0.f:pigeons[0].pos.y,pigeons.empty()?0.f:pigeons[0].pos.z);
+            if (i == 0) {
+                for (size_t k = 0; k < std::min(liveNpcs0.size(), npcs.size()); ++k)
+                    if (memcmp(&liveNpcs0[k], &npcs[k].pos, sizeof(V3)) != 0) {
+                        printf("      first npc diff #%zu live=(%.9f %.9f %.9f) replay=(%.9f %.9f %.9f)\n",
+                               k, liveNpcs0[k].x,liveNpcs0[k].y,liveNpcs0[k].z,
+                               npcs[k].pos.x,npcs[k].pos.y,npcs[k].pos.z); break;
+                    }
+                for (size_t k = 0; k < std::min(livePigeons0.size(), pigeons.size()); ++k)
+                    if (memcmp(&livePigeons0[k], &pigeons[k].pos, sizeof(V3)) != 0) {
+                        printf("      first pigeon diff #%zu live=(%.9f %.9f %.9f) replay=(%.9f %.9f %.9f)\n",
+                               k, livePigeons0[k].x,livePigeons0[k].y,livePigeons0[k].z,
+                               pigeons[k].pos.x,pigeons[k].pos.y,pigeons[k].pos.z); break;
+                    }
+                for (size_t k = 0; k < std::min(liveCars0.size(), cars.size()); ++k)
+                    if (memcmp(&liveCars0[k], &cars[k].x, sizeof(float)) != 0) {
+                        printf("      first car diff #%zu live=%.9f replay=%.9f\n", k, liveCars0[k], cars[k].x); break;
+                    }
+            }
         }
     }
     uint32_t replayHash = worldHash();
