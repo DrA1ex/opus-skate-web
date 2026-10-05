@@ -8790,6 +8790,11 @@ static void renderFrame(const FrameInfo& F, V3 poolCenter) {
 #ifdef __EMSCRIPTEN__
         const GLenum none = GL_NONE;
         glDrawBuffers(1, &none);
+        if (c == 0) {
+            if (gl.CheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+                fprintf(stderr, "framebuffer 'shadow' incomplete\n");
+            fprintf(stderr, "web renderer targets ready\n");
+        }
 #else
         glDrawBuffer(GL_NONE);
         glReadBuffer(GL_NONE);
