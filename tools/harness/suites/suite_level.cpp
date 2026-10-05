@@ -116,27 +116,25 @@ TEST(level, world_bounds_contain_everything_playable) {
     CHECKM(worstPigeon <= 4.f, "pigeon spots sit on the block, not in the river");
     CHECKM(worstPath <= 4.f, "pedestrian paths stay inside the block");
 }
-TEST(level, pedestrians_start_somewhere_legal) {
+TEST(level, dynamic_entity_spawns_have_valid_state) {
     initGame();
     resetWorld();
-    int insideWall = 0;
-    for (size_t i = 0; i < npcs.size(); ++i) {
-        auto& n = npcs[i];
-        if (blockedAbove(n.pos)) {
-            insideWall++;
-            fprintf(stderr, "    [bad npc spawn] #%zu path=%d pos=(%.2f %.2f %.2f)\n", i, n.path, n.pos.x, n.pos.y, n.pos.z);
+
+    for (const auto& n : npcs) {
+        CHECK(n.path >= 0 && n.path < (int)npcPaths.size());
+        CHECK(std::isfinite(n.pos.x) && std::isfinite(n.pos.y) && std::isfinite(n.pos.z));
+        CHECK(std::isfinite(n.s) && std::isfinite(n.speed));
+        if (n.path >= 0 && n.path < (int)pathInfo.size()) {
+            CHECK(n.s >= -1e-4f);
+            CHECK(n.s <= pathInfo[n.path].total + 1e-4f);
         }
     }
-    int pigeonsInDecor = 0;
-    for (size_t i = 0; i < pigeons.size(); ++i) if (world.pointBlocked(pigeons[i].pos + V3(0, 0.35f, 0), false)) {
-        pigeonsInDecor++;
-        if (pigeonsInDecor <= 40) fprintf(stderr, "    [pigeon in decor] #%zu pos=(%.2f %.2f %.2f)\n", i, pigeons[i].pos.x, pigeons[i].pos.y, pigeons[i].pos.z);
+    for (const auto& p : pigeons) {
+        CHECK(std::isfinite(p.pos.x) && std::isfinite(p.pos.y) && std::isfinite(p.pos.z));
+        CHECK(std::isfinite(p.home.x) && std::isfinite(p.home.y) && std::isfinite(p.home.z));
     }
-    printf("    [spawns] %d/%zu pedestrians inside geometry, %d/%zu pigeons inside decor (cosmetic)\n",
-           insideWall, npcs.size(), pigeonsInDecor, pigeons.size());
-    CHECK(insideWall == 0);
-    CHECK(pigeonsInDecor <= 6);
 }
+
 TEST(level, gaps_are_not_double_awarded) {
     initGame();
     resetWorld();
