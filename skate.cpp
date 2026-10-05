@@ -9458,7 +9458,7 @@ int main(int argc, char** argv) {
         popup(cam.mode == 0 ? "CHASE CAM" : cam.mode == 1 ? "HIGH CAM" : "FILMER FISHEYE", Col(220, 220, 220), 0.8f, 1.2f);
     };
     titleMenu.items = {
-        {"FREE SKATE", nullptr, nullptr, [&] { mode = GM_PLAY; session = false; helpTimer = 14.f; helpPage = 1; }},
+        {"FREE SKATE", nullptr, nullptr, [&] { mode = GM_PLAY; session = false; helpTimer = webMobileMode ? -1.f : 14.f; helpPage = webMobileMode ? 0 : 1; }},
         {"2 MINUTE SESSION", nullptr, nullptr, [&] { startSession(); }},
         todItem(),
         qualityItem(),
@@ -9784,10 +9784,12 @@ int main(int argc, char** argv) {
                 float U = hud.U;
                 if (mode == GM_TITLE) {
                     drawTitle(time);
-                    float my = hud.H * 0.33f;
-                    if (menuPage == 0) drawMenu(titleMenu, hud.W * 0.5f, my, time);
-                    else if (menuPage == 1) drawMenu(optionsMenu, hud.W * 0.5f, my, time);
-                    else drawHelpPanel(hud.W * 0.5f - helpPanelW(1.5f * U) / 2, hud.H * 0.3f, 1, 1.5f);
+                    if (!webMobileMode) {
+                        float my = hud.H * 0.33f;
+                        if (menuPage == 0) drawMenu(titleMenu, hud.W * 0.5f, my, time);
+                        else if (menuPage == 1) drawMenu(optionsMenu, hud.W * 0.5f, my, time);
+                        else drawHelpPanel(hud.W * 0.5f - helpPanelW(1.5f * U) / 2, hud.H * 0.3f, 1, 1.5f);
+                    }
                 } else {
                     drawGameHud(P, time, sessionLeft, session, mode == GM_PLAY ? helpPage : 0, 1.f, fi.vp, cam.pos, showFps, fps);
                     if (mode == GM_PAUSE) {
