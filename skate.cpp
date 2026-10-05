@@ -5466,6 +5466,11 @@ static void buildOutskirts() {
         scatterSpots(V3(-14, 0, 0), Z, X, -52.f, -16.f, 6011, none);
     }
     // ---- and on to the horizon beyond the closures: background blocks, lamps, trees and cars
+    // These are purely decorative and live outside the playable extension.
+    // Keep them for desktop presets, but omit them on LOW/mobile: the regular
+    // skyline still closes the horizon and this avoids a large startup/upload
+    // cost for geometry the player can never reach.
+    if (!lowDetailGeometry()) {
     V3 Xv(1, 0, 0), Zv(0, 0, 1);
     const float FAR_LEN = 1400.f - EXT;
     farRow(V3(-EXT, 0, 12), Zv * -1.f, FAR_LEN, 22, 201);
@@ -5495,6 +5500,7 @@ static void buildOutskirts() {
             if (r.chance(keep)) carGeom(SM, frame(sd * d, 0, sd > 0 ? 5.7f : -5.7f, PI / 2), r.chance(0.35f) ? 0 : r.irange(1, 3), r.chance(0.35f) ? cab : hexc(carCols[r.irange(0, 6)]));
             if (r.chance(keep)) carGeom(SM, frame(sd > 0 ? 7.7f : -7.7f, 0, d, 0), r.chance(0.35f) ? 0 : r.irange(1, 3), r.chance(0.35f) ? cab : hexc(carCols[r.irange(0, 6)]));
         }
+    }
     }
     // ---- pedestrians out on the long sidewalks
     for (float x = 72; x < N - 30; x += 96) {
