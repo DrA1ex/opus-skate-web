@@ -120,11 +120,18 @@ TEST(level, pedestrians_start_somewhere_legal) {
     initGame();
     resetWorld();
     int insideWall = 0;
-    for (auto& n : npcs) {
-        if (blockedAbove(n.pos)) insideWall++;
+    for (size_t i = 0; i < npcs.size(); ++i) {
+        auto& n = npcs[i];
+        if (blockedAbove(n.pos)) {
+            insideWall++;
+            fprintf(stderr, "    [bad npc spawn] #%zu path=%d pos=(%.2f %.2f %.2f)\n", i, n.path, n.pos.x, n.pos.y, n.pos.z);
+        }
     }
     int pigeonsInDecor = 0;
-    for (auto& p : pigeons) if (world.pointBlocked(p.pos + V3(0, 0.35f, 0), false)) pigeonsInDecor++;
+    for (size_t i = 0; i < pigeons.size(); ++i) if (world.pointBlocked(pigeons[i].pos + V3(0, 0.35f, 0), false)) {
+        pigeonsInDecor++;
+        if (pigeonsInDecor <= 40) fprintf(stderr, "    [pigeon in decor] #%zu pos=(%.2f %.2f %.2f)\n", i, pigeons[i].pos.x, pigeons[i].pos.y, pigeons[i].pos.z);
+    }
     printf("    [spawns] %d/%zu pedestrians inside geometry, %d/%zu pigeons inside decor (cosmetic)\n",
            insideWall, npcs.size(), pigeonsInDecor, pigeons.size());
     CHECK(insideWall == 0);
