@@ -55,8 +55,6 @@
 #include <mutex>
 #include <map>
 
-  if(bumpAmt > 0.0) n = detailNormal(n, bump, bumpAmt);
-
 #ifndef APIENTRY
 #define APIENTRY
 #endif
