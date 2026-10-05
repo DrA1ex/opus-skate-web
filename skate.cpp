@@ -8158,6 +8158,21 @@ static void drawGameHud(const Player& pl, float time, float sessionLeft, bool se
 static void drawTitle(float time) {
     float U = hud.U;
     hud.rect(0, 0, hud.W, hud.H, Col(0, 0, 0), 0.22f);
+    if (webMobileMode) {
+        const std::string title = "CONCRETE JUNGLE";
+        const std::string subtitle = "NEW YORK CITY STREET SKATING";
+        bool portrait = hud.H > hud.W;
+        float titleMax = (portrait ? 5.f : 8.f) * U;
+        float titleSc = std::min(titleMax, (hud.W - 28 * U) / hud.textW(title, 1.f));
+        float subtitleMax = (portrait ? 1.7f : 2.2f) * U;
+        float subtitleSc = std::min(subtitleMax, (hud.W - 28 * U) / hud.textW(subtitle, 1.f));
+        float y = hud.H * (portrait ? 0.11f : 0.10f);
+        float wob = std::sin(time * 2.f) * 2 * U;
+        hud.text(hud.W * 0.5f + 3 * U, y + 3 * U + wob, titleSc, title, hexc(0xc01e1e), 1, 1, false);
+        hud.text(hud.W * 0.5f, y + wob, titleSc, title, hexc(0xffd23a), 1, 1, false);
+        hud.text(hud.W * 0.5f, y + 9 * titleSc, subtitleSc, subtitle, Col(255, 255, 255), 0.95f, 1);
+        return;
+    }
     float y = hud.H * 0.1f;
     float wob = std::sin(time * 2.f) * 3 * U;
     hud.text(hud.W * 0.5f + 5 * U, y + 5 * U + wob, 10 * U, "CONCRETE JUNGLE", hexc(0xc01e1e), 1, 1, false);
