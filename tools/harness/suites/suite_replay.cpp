@@ -34,15 +34,70 @@ TEST(replay, world_state_is_reproducible_too) {
 TEST(replay, record_then_replay_reproduces_the_run) {
     initGame();
     resetWorld();
+
+    struct Trace {
+        uint32_t player = 0, world = 0;
+        V3 pos, vel, npc0, pigeon0;
+        float yaw = 0, car0 = 0, timer = 0;
+        int state = 0;
+        long long score = 0;
+    };
+
     Replay rec;
-    MonkeyStats live = runMonkey(15, 2024u, &rec, true);
-    uint32_t liveHash = rec.hash;
+    MonkeyRng rng(2024u);
+    Sim liveSim;
+    std::vector<Trace> trace;
+    for (int f = 0; f < 15 * 60; ++f) {
+        Input in = monkeyInput(rng, P);
+        rec.input.push_back(Replay::pack(in));
+        liveSim.tick(in);
+        Trace t;
+        t.player = playerHash();
+        t.world = worldHash();
+        t.pos = P.pos; t.vel = P.vel; t.yaw = P.yaw; t.state = P.state; t.score = P.score;
+        if (!npcs.empty()) t.npc0 = npcs[0].pos;
+        if (!pigeons.empty()) t.pigeon0 = pigeons[0].pos;
+        if (!cars.empty()) t.car0 = cars[0].x;
+        t.timer = tlTimer;
+        trace.push_back(t);
+    }
+    rec.ticks = (uint32_t)rec.input.size();
+    rec.seed = 2024u;
+    rec.worldSystems = true;
+    rec.hash = worldHash();
+    const uint32_t liveHash = rec.hash;
+    const long long liveScore = P.score;
+
     CHECK(rec.ticks == (uint32_t)(15 * 60));
     resetWorld();
-    uint32_t replayHash = playReplay(rec);
-    printf("    [replay] live %08x, replayed %08x (%u ticks)\n", liveHash, replayHash, rec.ticks);
+
+    Sim replaySim;
+    int firstMismatch = -1;
+    for (uint32_t i = 0; i < rec.ticks; ++i) {
+        replaySim.tick(Replay::unpack(rec.input[i]));
+        if (worldHash() != trace[i].world && firstMismatch < 0) {
+            firstMismatch = (int)i;
+            const Trace& t = trace[i];
+            printf("    [replay mismatch] frame=%u mask=%04x player=%08x/%08x world=%08x/%08x\n",
+                   i, rec.input[i], t.player, playerHash(), t.world, worldHash());
+            printf("      live  pos=(%.6f %.6f %.6f) vel=(%.6f %.6f %.6f) yaw=%.6f state=%d score=%lld car0=%.6f timer=%.6f\n",
+                   t.pos.x,t.pos.y,t.pos.z,t.vel.x,t.vel.y,t.vel.z,t.yaw,t.state,t.score,t.car0,t.timer);
+            printf("      replay pos=(%.6f %.6f %.6f) vel=(%.6f %.6f %.6f) yaw=%.6f state=%d score=%lld car0=%.6f timer=%.6f\n",
+                   P.pos.x,P.pos.y,P.pos.z,P.vel.x,P.vel.y,P.vel.z,P.yaw,P.state,P.score,
+                   cars.empty()?0.f:cars[0].x,tlTimer);
+            printf("      npc0 live=(%.6f %.6f %.6f) replay=(%.6f %.6f %.6f)\n",
+                   t.npc0.x,t.npc0.y,t.npc0.z,
+                   npcs.empty()?0.f:npcs[0].pos.x,npcs.empty()?0.f:npcs[0].pos.y,npcs.empty()?0.f:npcs[0].pos.z);
+            printf("      pigeon0 live=(%.6f %.6f %.6f) replay=(%.6f %.6f %.6f)\n",
+                   t.pigeon0.x,t.pigeon0.y,t.pigeon0.z,
+                   pigeons.empty()?0.f:pigeons[0].pos.x,pigeons.empty()?0.f:pigeons[0].pos.y,pigeons.empty()?0.f:pigeons[0].pos.z);
+        }
+    }
+    uint32_t replayHash = worldHash();
+    printf("    [replay] live %08x, replayed %08x (%u ticks), first mismatch %d\n",
+           liveHash, replayHash, rec.ticks, firstMismatch);
     CHECK(replayHash == liveHash);
-    CHECK(P.score == live.score);
+    CHECK(P.score == liveScore);
 }
 
 TEST(replay, round_trips_through_a_file) {
