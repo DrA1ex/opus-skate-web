@@ -679,7 +679,7 @@ layout(location=4) in vec3 aTex;
 layout(location=5) in vec4 aTexN;
 uniform mat4 uVP;
 uniform vec4 uClip;
-out vec3 vPos; out vec3 vNrm; out vec3 vCol; flat out int vMat; out vec3 vTex; out vec3 vNrmO;
+out vec3 vPos; out vec3 vNrm; out vec3 vCol; flat out int vMat; out vec3 vTex; out vec3 vNrmO; out float vClip;
 invariant gl_Position;
 void main(){
   vPos = aPos; vNrm = aNrm; vCol = aCol; vMat = int(aMat + 0.5); vTex = aTex; vNrmO = aTexN.xyz;
@@ -906,7 +906,7 @@ bool traceSSR(sampler2D depthTex, vec3 P, vec3 R, int steps, float jitter, out v
 )";
 
 static const char* PREPASS_FS = R"(
-in vec3 vPos; in vec3 vNrm; in vec3 vCol; flat in int vMat;
+in vec3 vPos; in vec3 vNrm; in vec3 vCol; flat in int vMat; in float vClip;
 uniform float uDynamic;
 layout(location=0) out vec4 oNrm;
 void main(){
@@ -919,7 +919,7 @@ void main(){
 )";
 
 static const char* WORLD_FS_MAIN = R"(
-in vec3 vPos; in vec3 vNrm; in vec3 vCol; flat in int vMat; in vec3 vTex; in vec3 vNrmO;
+in vec3 vPos; in vec3 vNrm; in vec3 vCol; flat in int vMat; in vec3 vTex; in vec3 vNrmO; in float vClip;
 uniform sampler2D uAO; uniform int uUseAO; uniform vec2 uInvRes; uniform int uInlineFog; uniform int uDebug; uniform float uIntGlow;
 layout(location=0) out vec4 oCol; layout(location=1) out vec4 oRefl; layout(location=2) out vec4 oSurf;
 
@@ -1106,6 +1106,7 @@ float teePrint(vec2 q){
 }
 
 void main(){
+  if(vClip < 0.0) discard;
   vec3 n = normalize(vNrm);
   if(!gl_FrontFacing) n = -n;
   int m = vMat;
@@ -8842,9 +8843,6 @@ static void renderFrame(const FrameInfo& F, V3 poolCenter) {
         glEnable(GL_DEPTH_TEST);
         glDepthFunc(GL_LESS);
         glDepthMask(GL_TRUE);
-#ifndef __EMSCRIPTEN__
-        glEnable(GL_CLIP_DISTANCE0);
-#endif
         setCommon(RD.pWorld, rc, F.time);
         setShadowUniforms(RD.pWorld, F.camFwd, 0);
         setLightUniforms(RD.pWorld);
@@ -8857,9 +8855,6 @@ static void renderFrame(const FrameInfo& F, V3 poolCenter) {
         Frustum fRefl; fRefl.set(rvp);
         RD.staticMesh.draw(&fRefl);
         RD.dynMesh.draw();
-#ifndef __EMSCRIPTEN__
-        glDisable(GL_CLIP_DISTANCE0);
-#endif
     }
 
     // ---- 6. main forward pass: PBR world (depth from the prepass) + sky where nothing was drawn
