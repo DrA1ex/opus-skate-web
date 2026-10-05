@@ -8857,7 +8857,9 @@ static void renderFrame(const FrameInfo& F, V3 poolCenter) {
         Frustum fRefl; fRefl.set(rvp);
         RD.staticMesh.draw(&fRefl);
         RD.dynMesh.draw();
+#ifndef __EMSCRIPTEN__
         glDisable(GL_CLIP_DISTANCE0);
+#endif
     }
 
     // ---- 6. main forward pass: PBR world (depth from the prepass) + sky where nothing was drawn
